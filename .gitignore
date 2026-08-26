@@ -1,0 +1,16 @@
+# packwiz export outputs
+build/
+*.mrpack
+*.zip
+
+# local packwiz cache / tooling
+.packwiz-cache/
+bin/
+
+# editor & OS junk
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
