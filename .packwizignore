@@ -1,0 +1,11 @@
+# Repo tooling and docs — not modpack content.
+README.md
+LICENSE
+Makefile
+.gitignore
+.packwizignore
+.github/
+scripts/
+build/
+*.mrpack
+*.zip
