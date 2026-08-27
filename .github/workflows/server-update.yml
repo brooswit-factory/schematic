@@ -1,0 +1,113 @@
+name: Server update
+
+# Uploads the packwiz pack to a game server over FTP, then announces and
+# restarts it over RCON. Both halves skip independently (and the run still
+# succeeds) when their secrets are not configured — see the "check secrets"
+# step below.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to announce (defaults to the pack.toml version)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  server-update:
+    name: Update server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            version="${{ github.event.release.tag_name }}"
+          elif [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' pack.toml)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Secrets cannot be read directly in an `if:` expression, so this step
+      # reads them from env and writes booleans to $GITHUB_OUTPUT instead.
+      # Never echo the secret values themselves.
+      - name: Check secrets
+        id: secrets
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          RCON_HOST: ${{ secrets.RCON_HOST }}
+          RCON_PASSWORD: ${{ secrets.RCON_PASSWORD }}
+        run: |
+          if [ -n "$FTP_HOST" ] && [ -n "$FTP_USER" ] && [ -n "$FTP_PASSWORD" ]; then
+            echo "has_ftp=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_ftp=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$RCON_HOST" ] && [ -n "$RCON_PASSWORD" ]; then
+            echo "has_rcon=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_rcon=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Uploads only modpack content (pack.toml, index.toml, mods/, config/ if
+      # present) — never .git, bin/, build/, or repo tooling/docs.
+      - name: Upload pack over FTP
+        if: steps.secrets.outputs.has_ftp == 'true'
+        # Pinned to a specific release tag.
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: ${{ vars.FTP_REMOTE_DIR || '/' }}
+          exclude: |
+            **/.git*
+            **/.git*/**
+            bin/**
+            build/**
+            .github/**
+            server/**
+            README.md
+            Makefile
+            .packwizignore
+
+      - name: Skip server upload
+        if: steps.secrets.outputs.has_ftp != 'true'
+        run: echo "FTP secrets not set — skipping server upload"
+
+      # mcrcon, pinned to release v0.7.2 (https://github.com/Tiiffi/mcrcon).
+      - name: Install mcrcon
+        if: steps.secrets.outputs.has_rcon == 'true'
+        run: |
+          curl -fsSL -o mcrcon.tar.gz \
+            https://github.com/Tiiffi/mcrcon/releases/download/v0.7.2/mcrcon-0.7.2-linux-x86-64.tar.gz
+          tar -xzf mcrcon.tar.gz mcrcon
+          rm mcrcon.tar.gz
+
+      - name: Announce and restart over RCON
+        if: steps.secrets.outputs.has_rcon == 'true'
+        env:
+          MCRCON_HOST: ${{ secrets.RCON_HOST }}
+          MCRCON_PORT: ${{ vars.RCON_PORT || '25575' }}
+          MCRCON_PASS: ${{ secrets.RCON_PASSWORD }}
+          RESTART_COMMAND: ${{ vars.RCON_RESTART_COMMAND || 'stop' }}
+          PACK_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./mcrcon -H "$MCRCON_HOST" -P "$MCRCON_PORT" \
+            "say Modpack updated to $PACK_VERSION — restart to apply" \
+            "$RESTART_COMMAND"
+
+      - name: Skip RCON announce
+        if: steps.secrets.outputs.has_rcon != 'true'
+        run: echo "RCON secrets not set — skipping RCON announce"
