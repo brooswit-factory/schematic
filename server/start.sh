@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sample Forge 1.20.1 server start script for the schematic modpack.
+# Sample Forge 1.20.1 server start script for this modpack.
 #
 # Run once (or whenever the pack changes) to sync mods via packwiz-installer,
 # then launch the Forge server. See server/README.md for full setup steps.

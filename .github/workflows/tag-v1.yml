@@ -4,6 +4,13 @@ name: Tag v1
 # pinned to @v1 pick up changes to the reusable workflows automatically.
 # Tags pushed with the default GITHUB_TOKEN do not trigger other workflow
 # runs — that is fine and desirable here, it just prevents an infinite loop.
+#
+# Template-only: guarded by a `github.repository` check below so it is a
+# no-op in forks/consumer repos created from this template. Without the
+# guard, a consumer's first `git push -u origin main` would create a bogus
+# `v1` tag in their own repo — and since the guard lives in this file, a
+# consumer merging future template updates (`git merge template/main`)
+# can't accidentally lose it by deleting the file locally.
 
 on:
   push:
@@ -14,6 +21,7 @@ permissions:
 
 jobs:
   tag:
+    if: github.repository == 'brooswit-factory/schematic'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

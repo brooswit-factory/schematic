@@ -1,4 +1,4 @@
-# schematic — packwiz modpack build.
+# packwiz modpack build.
 #
 # CI calls these same targets, so local and CI cannot drift.
 # Requires Go (for `make tools`) or packwiz already on PATH.
