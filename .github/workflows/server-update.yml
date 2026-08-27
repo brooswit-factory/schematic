@@ -14,6 +14,11 @@ on:
         description: 'Version to announce (defaults to the pack.toml version)'
         required: false
         type: string
+  # TEMPORARY — added only to obtain a real dry-run URL on this branch,
+  # since GitHub only allows dispatching workflow_dispatch via API/CLI for a
+  # workflow file already on the default branch. Removed in the next commit;
+  # the run URL stays valid after removal.
+  pull_request:
 
 permissions:
   contents: read
