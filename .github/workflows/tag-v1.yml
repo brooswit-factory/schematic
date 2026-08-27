@@ -1,0 +1,24 @@
+name: Tag v1
+
+# Keeps the moving `v1` tag pointed at the latest main, so consumer stubs
+# pinned to @v1 pick up changes to the reusable workflows automatically.
+# Tags pushed with the default GITHUB_TOKEN do not trigger other workflow
+# runs — that is fine and desirable here, it just prevents an infinite loop.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Force-move v1 to this commit
+        run: |
+          git tag -f v1
+          git push -f origin v1

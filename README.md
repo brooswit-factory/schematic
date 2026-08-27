@@ -133,6 +133,15 @@ Both halves are independent and **skip cleanly** (the workflow still finishes gr
 when their secrets aren't configured, so this works out of the box on a fresh fork —
 you opt in by adding the secrets/variables below whenever you're ready.
 
+## Reusable workflows
+
+`ci.yml`, `release.yml`, and `server-update.yml` are thin stubs: each keeps only
+its trigger (`on:`) and any `permissions:` it needs, and calls this repo's
+actual logic via `uses: brooswit-factory/schematic/.github/workflows/reusable-<name>.yml@v1`.
+`v1` is a moving tag kept pointed at `main`, so pinning a consumer's stub to
+`@v1` picks up fixes to the reusable workflows automatically. Copy a stub
+as-is into a consumer repo; the reusable workflow it calls stays here.
+
 ## Secrets & variables
 
 Everything below is optional. With none of them set, `ci.yml` and `release.yml` still
