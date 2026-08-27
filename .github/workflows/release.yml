@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Pack version to build, e.g. 0.1.0 (for dry runs — no GitHub Release is created)"
+        required: true
+        type: string
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    # release.yml attaches an asset to a GitHub Release, so it needs write access.
+    # ci.yml only reads the repo, so keep that workflow's permissions untouched.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Values reach the shell only through env: (data), never interpolated
+      # directly into the script (code) — a tag/input containing quotes or
+      # `$(...)` must not be able to execute in a job with contents: write.
+      - name: Resolve version
+        id: ver
+        env:
+          RAW_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
+        run: echo "version=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      # Kept in sync with PACKWIZ_REF in the Makefile, same as ci.yml.
+      - name: Install pinned packwiz
+        run: make tools
+
+      # We rewrite pack.toml's version below to build under the release's tag,
+      # which `make check` (compares pack.toml/index.toml/mods against git)
+      # would flag as a stale index. That check already runs on every push and
+      # PR via ci.yml, so it's skipped here rather than run before the rewrite.
+      - name: Set pack version
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          # Escape sed's replacement metacharacters (& and \) so a version
+          # containing them can't corrupt pack.toml or execute as sed syntax.
+          escaped=$(printf '%s' "$VERSION" | sed 's/[&\|]/\\&/g')
+          sed -i "s|^version = \".*\"|version = \"${escaped}\"|" pack.toml
+
+      - name: Build .mrpack
+        run: make build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: schematic-${{ steps.ver.outputs.version }}-mrpack
+          path: build/*.mrpack
+          if-no-files-found: error
+
+      - name: Attach .mrpack to the GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*.mrpack
+
+      # Secrets can't be referenced directly in `if:`, so map them into env
+      # here and test only for emptiness — never print a secret's value.
+      - name: Check Modrinth configuration
+        id: modrinth_check
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+        run: |
+          if [ -n "$MODRINTH_TOKEN" ] && [ -n "$MODRINTH_PROJECT_ID" ]; then
+            echo "has_modrinth=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_modrinth=false" >> "$GITHUB_OUTPUT"
+            missing=""
+            [ -z "$MODRINTH_TOKEN" ] && missing="${missing}MODRINTH_TOKEN "
+            [ -z "$MODRINTH_PROJECT_ID" ] && missing="${missing}MODRINTH_PROJECT_ID "
+            echo "MODRINTH_TOKEN/MODRINTH_PROJECT_ID not set — skipping Modrinth publish (missing: ${missing})"
+          fi
+
+      - name: Publish to Modrinth
+        if: steps.modrinth_check.outputs.has_modrinth == 'true'
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          files: build/*.mrpack
+          name: ${{ steps.ver.outputs.version }}
+          version: ${{ steps.ver.outputs.version }}
+          version-type: ${{ contains(steps.ver.outputs.version, '-') && 'beta' || 'release' }}
+          game-versions: 1.20.1
+          loaders: forge
+          changelog: ${{ github.event_name == 'release' && github.event.release.body || '' }}

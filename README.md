@@ -73,6 +73,40 @@ packwiz fetches them at export time.
 installs the pinned packwiz, fails if `packwiz refresh` produces a diff, builds the
 pack, and uploads the resulting `.mrpack` as a workflow artifact.
 
+## Releasing
+
+`.github/workflows/release.yml` cuts a release. To publish a new version:
+
+1. Create a GitHub Release with a tag of the form `vX.Y.Z` (e.g. `v0.2.0`).
+2. On publish, the workflow:
+   - sets the pack version from the tag (in-workflow only — nothing is committed back),
+   - builds `build/schematic-<version>.mrpack` with the same `make` targets used locally
+     and in CI,
+   - attaches the `.mrpack` to the GitHub Release as a download,
+   - publishes the same file to Modrinth, if Modrinth is configured (see below).
+
+You can also dry-run the whole build-and-package path without creating a Release, via
+`workflow_dispatch`:
+
+```sh
+gh workflow run release.yml --ref <branch> -f version=0.0.1-test
+```
+
+This builds and uploads the `.mrpack` as a workflow artifact but skips the
+Release-asset step (there is no Release object to attach to) and the Modrinth publish
+step, the same as any run without Modrinth configured.
+
+### Configuration
+
+| Name | Kind | Purpose | Where to get it |
+|---|---|---|---|
+| `MODRINTH_TOKEN` | Actions secret | Auth token for publishing to Modrinth | https://modrinth.com/settings/pats — needs the **write-version** scope |
+| `MODRINTH_PROJECT_ID` | Actions variable | Identifies which Modrinth project to publish to | The project's Settings page, or its URL slug |
+
+If either of these is not set, the release still builds and the `.mrpack` is still
+attached to the GitHub Release — the Modrinth publish step is skipped and the workflow
+stays green.
+
 ## Updating a server
 
 `.github/workflows/server-update.yml` runs on a published GitHub release, or on demand
@@ -100,5 +134,4 @@ you opt in by adding the secrets/variables below whenever you're ready.
 
 This repo is being built out in stages. Still to land:
 
-- **Release publishing** — tag a release and have CI publish the `.mrpack` to Modrinth.
 - **Full usage guide** — a proper walkthrough of forking this template for your own pack.
