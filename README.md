@@ -51,11 +51,15 @@ That's it. The build artifact name (`<name>-<version>.mrpack`) and the Modrinth 
 target are both derived from `pack.toml` automatically — nothing to rename in the
 Makefile or the workflows.
 
-Verify with `grep -ri schematic .`: the only remaining hits should be this README and
-the `uses: brooswit-factory/schematic/.github/workflows/reusable-<name>.yml@v1` line in
-each of `ci.yml`, `release.yml`, and `server-update.yml`. **Leave those `uses:` lines
-alone** — they point at this project's upstream reusable workflows, not at your own
-pack, and renaming them will break all three of your workflows.
+Verify with `grep -ri schematic .`: the only remaining hits should be this README, the
+`uses: brooswit-factory/schematic/.github/workflows/reusable-<name>.yml@v1` line in
+each of `ci.yml`, `release.yml`, and `server-update.yml`, and the
+`if: github.repository == 'brooswit-factory/schematic'` guard in `tag-v1.yml`. **Leave
+all of those alone** — the `uses:` lines point at this project's upstream reusable
+workflows, not at your own pack, and the `tag-v1.yml` guard is what keeps that
+template-only workflow from creating a tag in your repo (see
+[Template-only workflow](#template-only-workflow) below). Renaming any of them will
+break the thing they exist to do.
 
 Optionally, you can also replace the copyright holder in `LICENSE` with your own name —
 that's not required for anything to work; it's your call whether the template's MIT
@@ -99,7 +103,7 @@ updates, pin a specific tag or commit SHA in place of `@v1` in your stub's `uses
 
 `.github/workflows/tag-v1.yml` keeps the `v1` tag on **this** repo pointed at its own
 `main`. It is guarded by a `github.repository` check, so it is inert in any repo cloned
-from this template — the job still runs, but does nothing, and creates no tag in your
+from this template — the job is skipped entirely, so it creates no tag in your
 repo. There's no need to delete it; a `git merge template/main` would just bring it
 back anyway.
 
@@ -108,9 +112,10 @@ consumer of this template, need to care about.
 
 ## Secrets & variables
 
-Everything below is optional. With none of them set, `ci.yml` and `release.yml` still
-build and attach the `.mrpack`, and any workflow step that needs a secret **skips
-cleanly** (the run still finishes green) when it isn't configured.
+Everything below is optional. With none of them set, `ci.yml` still builds and uploads
+the `.mrpack` as a workflow artifact, `release.yml` still builds and attaches it to the
+GitHub Release, and any workflow step that needs a secret **skips cleanly** (the run
+still finishes green) when it isn't configured.
 
 | Name | Kind | Used by | Purpose |
 |---|---|---|---|
@@ -169,8 +174,9 @@ packwiz remove <name>           # e.g. packwiz remove jei
 ```
 
 Both commands update `index.toml` for you. Commit the resulting `mods/<name>.pw.toml`
-along with the changed `index.toml` — **CI fails if the index does not match what is
-on disk.**
+along with the changed `index.toml` and `pack.toml` (`packwiz refresh` writes the new
+index hash into `pack.toml`'s `[index]` block) — **CI fails if the index does not
+match what is on disk.**
 
 packwiz also has `packwiz curseforge add` and `packwiz url add` if a mod is not on
 Modrinth. Note that `packwiz modrinth export` restricts downloads to domains Modrinth
