@@ -14,9 +14,10 @@ then run it in server mode in an empty directory:
 java -jar forge-1.20.1-47.4.10-installer.jar --installServer
 ```
 
-This produces `server.jar` (or a versioned run script, depending on the
-installer build) plus the Forge/Minecraft libraries `start.sh` expects to
-find alongside it.
+On Forge 47.4.10 (1.17+), `--installServer` does **not** produce a
+`server.jar`. It produces `run.sh`/`run.bat`, a `user_jvm_args.txt`, and a
+`libraries/` tree — `run.sh` is the real entry point, and `start.sh`
+launches through it.
 
 ## 2. Accept the EULA
 
@@ -60,8 +61,10 @@ absolute path or URL to wherever `pack.toml` landed.
 ```
 
 This syncs mods via `packwiz-installer-bootstrap`, checks the EULA, and
-launches the Forge server with a sensible `-Xmx4G` heap (edit `start.sh` to
-match your host's available RAM).
+launches the Forge server via the generated `run.sh`. Set your heap in
+`user_jvm_args.txt` (next to `run.sh`), e.g. uncomment and adjust `-Xmx4G`
+there to match your host's available RAM — Forge reads JVM args from that
+file, not from a command-line flag on `start.sh`.
 
 ## Why upload the pack, not a rendered bundle
 

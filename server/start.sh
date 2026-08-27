@@ -22,7 +22,7 @@ fi
 # (see FTP_REMOTE_DIR), or a local path if you sync it some other way.
 PACK_URL="${PACK_URL:-./pack.toml}"
 
-# -g accepts the packwiz-installer license non-interactively;
+# -g runs packwiz-installer without a GUI (headless, suitable for a server);
 # -s server tells it to install the server-side file set only.
 echo "Syncing mods from $PACK_URL..."
 java -jar "$BOOTSTRAP_JAR" -g -s server "$PACK_URL"
@@ -34,6 +34,12 @@ if [ ! -f eula.txt ] || ! grep -q '^eula=true' eula.txt; then
   exit 1
 fi
 
-# Adjust -Xmx/-Xms for your host's available RAM; 4G is a reasonable default
-# for a small Create-modpack server.
-exec java -Xms1G -Xmx4G -jar server.jar nogui
+# Forge 1.17+ installers (including the pinned 47.4.10 here) don't produce a
+# server.jar — `--installServer` generates run.sh/run.bat plus
+# user_jvm_args.txt and a libraries/ tree, and run.sh is the real entry
+# point. Set -Xmx/-Xms in user_jvm_args.txt (next to this script), not here.
+if [ ! -x run.sh ]; then
+  echo "ERROR: run.sh not found or not executable. Run the Forge 47.4.10 installer with --installServer first (see server/README.md)." >&2
+  exit 1
+fi
+exec ./run.sh nogui
