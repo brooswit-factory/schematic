@@ -10,27 +10,25 @@ on:
         required: true
         type: string
 
-# release.yml attaches an asset to a GitHub Release, so it needs write access.
-# ci.yml only reads the repo, so keep that workflow's permissions untouched.
-permissions:
-  contents: write
-
 jobs:
   release:
     name: Build and publish release
     runs-on: ubuntu-latest
+    # release.yml attaches an asset to a GitHub Release, so it needs write access.
+    # ci.yml only reads the repo, so keep that workflow's permissions untouched.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
+      # Values reach the shell only through env: (data), never interpolated
+      # directly into the script (code) — a tag/input containing quotes or
+      # `$(...)` must not be able to execute in a job with contents: write.
       - name: Resolve version
         id: ver
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            raw="${{ github.event.release.tag_name }}"
-          else
-            raw="${{ github.event.inputs.version }}"
-          fi
-          echo "version=${raw#v}" >> "$GITHUB_OUTPUT"
+        env:
+          RAW_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
+        run: echo "version=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v5
         with:
@@ -45,8 +43,13 @@ jobs:
       # would flag as a stale index. That check already runs on every push and
       # PR via ci.yml, so it's skipped here rather than run before the rewrite.
       - name: Set pack version
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          sed -i 's/^version = ".*"/version = "${{ steps.ver.outputs.version }}"/' pack.toml
+          # Escape sed's replacement metacharacters (& and \) so a version
+          # containing them can't corrupt pack.toml or execute as sed syntax.
+          escaped=$(printf '%s' "$VERSION" | sed 's/[&\|]/\\&/g')
+          sed -i "s|^version = \".*\"|version = \"${escaped}\"|" pack.toml
 
       - name: Build .mrpack
         run: make build
