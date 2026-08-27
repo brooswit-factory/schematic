@@ -1,7 +1,7 @@
 # Running a server for this pack
 
 A short, practical guide to standing up a Forge 1.20.1 server for the
-`schematic` modpack, and to how `.github/workflows/server-update.yml` keeps
+modpack in this repo, and to how `.github/workflows/server-update.yml` keeps
 it in sync.
 
 ## 1. Install the Forge server
