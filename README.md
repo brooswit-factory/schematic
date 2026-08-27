@@ -47,9 +47,11 @@ git add pack.toml index.toml
 git commit -m "Rename pack"
 ```
 
-That's it. The build artifact name (`<name>-<version>.mrpack`) and the Modrinth publish
-target are both derived from `pack.toml` automatically — nothing to rename in the
-Makefile or the workflows.
+That's it. The build artifact name (`<name>-<version>.mrpack`) is derived from
+`pack.toml` automatically, and so are the Modrinth game version and loader it publishes
+under — nothing to rename in the Makefile or the workflows. The Modrinth project you
+publish *to* is a separate thing: it's set by the `MODRINTH_PROJECT_ID` repo variable,
+not by anything in `pack.toml` (see [Secrets & variables](#secrets--variables) below).
 
 Verify with `grep -ri schematic .`: the only remaining hits should be this README, the
 `uses: brooswit-factory/schematic/.github/workflows/reusable-<name>.yml@v1` line in
@@ -74,19 +76,36 @@ improvements to the reusable workflows. Pull those into your own pack with:
 
 ```sh
 git fetch template
-git merge template/main
-```
-
-Conflicts on `pack.toml`, `index.toml`, and `mods/` are expected — both sides changed
-your pack identity and mod list — and should be resolved in favour of **your own
-content**:
-
-```sh
-git checkout --ours -- pack.toml index.toml mods
+git merge template/main                                  # expect conflicts
+git checkout ORIG_HEAD -- pack.toml index.toml mods      # your pack content wins, conflicted or not
+git checkout --theirs -- <other conflicted files you have not customised>
 make refresh
-git add pack.toml index.toml mods
+git add -A
 git commit
 ```
+
+`ORIG_HEAD` is your branch tip as it was immediately before the merge — checking out
+`pack.toml`, `index.toml`, and `mods/` from it restores **your own content** there no
+matter what happened during the merge.
+
+That last point matters: git only reports a conflict on a file **both sides changed**.
+If the template deletes or changes a file you never touched — most importantly a mod
+file in `mods/`, or `index.toml` — there's no conflict, and the merge silently applies
+the template's version, which for a deleted mod means it's just gone with nothing to
+resolve. That's the intended behaviour for tooling files (`Makefile`, `server/`,
+workflow stubs) that should track the template automatically, but it's exactly why the
+`git checkout ORIG_HEAD -- pack.toml index.toml mods` step above is unconditional
+rather than only for conflicted paths — it protects your pack content whether or not git
+flagged a conflict on it.
+
+For the `--theirs` line, "other conflicted files you have not customised" typically
+means `Makefile`, `README.md`, `server/README.md`, and `server/start.sh` — take the
+template's version of these unless you've made local edits worth preserving. If you
+previously deleted `.github/workflows/tag-v1.yml` locally, you'll see it as a
+delete/modify conflict instead of a clean merge; per
+[Template-only workflow](#template-only-workflow) above, you don't need to delete it in
+the first place, so the simplest fix is to keep the template's version
+(`git checkout --theirs -- .github/workflows/tag-v1.yml`) rather than re-deleting it.
 
 ### The pinned workflow stubs
 
