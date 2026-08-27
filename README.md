@@ -2,8 +2,8 @@
 
 A boilerplate repository for a Minecraft **1.20.1 / Forge** modpack, managed with
 [packwiz](https://packwiz.infra.link). Use it as a GitHub template (or clone it), swap
-in your own mods, and you have a modpack project that builds, validates, releases, and
-optionally deploys to a server on every push.
+in your own mods, and you have a modpack project that builds and validates itself on
+every push, and can optionally cut releases and deploy to a server too.
 
 Out of the box the pack contains the [Create](https://modrinth.com/mod/create) mod and
 nothing else — it is a starting point, not a curated pack.
@@ -19,7 +19,7 @@ nothing else — it is a starting point, not a curated pack.
 1. Click **Use this template** above (or clone the repo).
 2. Work through the [rename checklist](#rename-checklist) below.
 3. Set whichever [secrets & variables](#secrets--variables) you need — or none, and
-   skip straight to step 3.
+   skip straight to step 4.
 4. Cut a [release](#releasing) once you're ready to publish a build.
 
 ## Rename checklist
@@ -153,7 +153,9 @@ build and attach the `.mrpack`, and every workflow stays green.
 
 ## Removing a path you don't need
 
-- No Modrinth publishing or releases? Delete `.github/workflows/release.yml`.
-- No server to keep in sync? Delete `.github/workflows/server-update.yml`.
-
-Nothing else in the repo references either file, so deleting one is a clean removal.
+- No Modrinth publishing or releases? Delete `.github/workflows/release.yml` — nothing
+  else in the repo references it.
+- No server to keep in sync? Delete `.github/workflows/server-update.yml`, the
+  `server/` directory (`server/README.md` and `server/start.sh` both only make sense
+  alongside it), and the "Updating a server" section and its rows in the
+  [secrets & variables](#secrets--variables) table above.
