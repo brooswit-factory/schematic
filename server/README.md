@@ -22,7 +22,7 @@ launches through it.
 ## 2. Accept the EULA
 
 Minecraft requires you to accept its EULA before the server will start.
-Create `eula.txt` next to `server.jar`:
+Create `eula.txt` in the server directory (next to `run.sh`):
 
 ```
 eula=true

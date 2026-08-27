@@ -1,8 +1,9 @@
 # schematic
 
 A boilerplate repository for a Minecraft **1.20.1 / Forge** modpack, managed with
-[packwiz](https://packwiz.infra.link). Clone it, swap in your own mods, and you have a
-modpack project that builds and validates itself on every push.
+[packwiz](https://packwiz.infra.link). Use it as a GitHub template (or clone it), swap
+in your own mods, and you have a modpack project that builds and validates itself on
+every push, and can optionally cut releases and deploy to a server too.
 
 Out of the box the pack contains the [Create](https://modrinth.com/mod/create) mod and
 nothing else — it is a starting point, not a curated pack.
@@ -13,7 +14,60 @@ nothing else — it is a starting point, not a curated pack.
 | Loader | Forge 47.4.10 |
 | Mods | Create (`mc1.20.1-6.0.8`) |
 
-## Prerequisites
+## Quick start
+
+1. Click **Use this template** above (or clone the repo).
+2. Work through the [rename checklist](#rename-checklist) below.
+3. Set whichever [secrets & variables](#secrets--variables) you need — or none, and
+   skip straight to step 4.
+4. Cut a [release](#releasing) once you're ready to publish a build.
+
+## Rename checklist
+
+Every place the name `schematic` (or the `brooswit-factory` author) appears. Verify
+with `grep -ri schematic .` — it should match this list exactly, aside from
+`index.toml`, which `make refresh` regenerates for you.
+
+| File | What to change |
+|---|---|
+| `pack.toml` | `name = "schematic"` and `author = "brooswit-factory"` |
+| `Makefile` | `PACK_NAME := schematic` (and the header comment on line 1) |
+| `README.md` | the `# schematic` title, and the `build/schematic-<version>.mrpack` mentions |
+| `.github/workflows/ci.yml` | artifact name `schematic-${{ steps.pack.outputs.version }}-mrpack` |
+| `.github/workflows/release.yml` | artifact name `schematic-${{ steps.ver.outputs.version }}-mrpack` |
+| `server/README.md` | the `schematic` modpack references |
+| `server/start.sh` | the header comment |
+| `LICENSE` | the copyright holder |
+
+Plus, if you use Modrinth: the project id you set in the `MODRINTH_PROJECT_ID`
+variable.
+
+After editing `pack.toml`, run `make refresh` and commit the result — `index.toml`
+needs to match, and CI fails if it doesn't.
+
+## Working on the pack
+
+```sh
+packwiz modrinth add <slug>     # e.g. packwiz modrinth add jei
+packwiz remove <name>           # e.g. packwiz remove jei
+```
+
+Both commands update `index.toml` for you. Commit the resulting `mods/<name>.pw.toml`
+along with the changed `index.toml` and `pack.toml` — **CI fails if the index does not
+match what is on disk.**
+
+packwiz also has `packwiz curseforge add` and `packwiz url add` if a mod is not on
+Modrinth. Note that `packwiz modrinth export` restricts downloads to domains Modrinth
+allows, so URL-sourced mods may not be exportable.
+
+```sh
+make check     # fails if the committed index.toml is stale
+make refresh   # rewrite index.toml after changing files by hand
+make build     # -> build/schematic-<version>.mrpack
+make clean     # remove build/ and bin/
+```
+
+### Prerequisites
 
 - [packwiz](https://packwiz.infra.link) — the pack manager. It publishes no tagged
   releases, so this repo pins a commit SHA (`PACKWIZ_REF` in the `Makefile`).
@@ -24,36 +78,7 @@ nothing else — it is a starting point, not a curated pack.
 make tools     # installs the pinned packwiz into ./bin (needs Go)
 ```
 
-## Build it locally
-
-```sh
-make build     # -> build/schematic-<version>.mrpack
-```
-
-CI runs these same `make` targets, so a local build and a CI build cannot drift.
-
-```sh
-make check     # fails if the committed index.toml is stale
-make refresh   # rewrite index.toml after changing files by hand
-make clean     # remove build/ and bin/
-```
-
-## Add or remove a mod
-
-```sh
-packwiz modrinth add <slug>     # e.g. packwiz modrinth add jei
-packwiz remove <name>           # e.g. packwiz remove jei
-```
-
-Both commands update `index.toml` for you. Commit the resulting `mods/<name>.pw.toml`
-along with the changed `index.toml` and `pack.toml` — CI fails if the index does not
-match what is on disk.
-
-packwiz also has `packwiz curseforge add` and `packwiz url add` if a mod is not on
-Modrinth. Note that `packwiz modrinth export` restricts downloads to domains Modrinth
-allows, so URL-sourced mods may not be exportable.
-
-## What is in the repo
+### What is in the repo
 
 ```
 pack.toml               pack metadata — name, version, Minecraft and Forge versions
@@ -67,7 +92,7 @@ Makefile                the build entry point, shared by humans and CI
 No jars are committed — `.pw.toml` files reference downloads by URL and hash, and
 packwiz fetches them at export time.
 
-## CI
+### CI
 
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request. It
 installs the pinned packwiz, fails if `packwiz refresh` produces a diff, builds the
@@ -96,17 +121,6 @@ This builds and uploads the `.mrpack` as a workflow artifact but skips the
 Release-asset step (there is no Release object to attach to) and the Modrinth publish
 step, the same as any run without Modrinth configured.
 
-### Configuration
-
-| Name | Kind | Purpose | Where to get it |
-|---|---|---|---|
-| `MODRINTH_TOKEN` | Actions secret | Auth token for publishing to Modrinth | https://modrinth.com/settings/pats — needs the **write-version** scope |
-| `MODRINTH_PROJECT_ID` | Actions variable | Identifies which Modrinth project to publish to | The project's Settings page, or its URL slug |
-
-If either of these is not set, the release still builds and the `.mrpack` is still
-attached to the GitHub Release — the Modrinth publish step is skipped and the workflow
-stays green.
-
 ## Updating a server
 
 `.github/workflows/server-update.yml` runs on a published GitHub release, or on demand
@@ -119,19 +133,31 @@ Both halves are independent and **skip cleanly** (the workflow still finishes gr
 when their secrets aren't configured, so this works out of the box on a fresh fork —
 you opt in by adding the secrets/variables below whenever you're ready.
 
-| Name | Kind | Purpose |
-|---|---|---|
-| `FTP_HOST` | secret | FTP server hostname for the pack upload |
-| `FTP_USER` | secret | FTP username |
-| `FTP_PASSWORD` | secret | FTP password |
-| `FTP_REMOTE_DIR` | variable | Remote directory to upload the pack to (default `/`) |
-| `RCON_HOST` | secret | RCON server hostname for the announce/restart |
-| `RCON_PASSWORD` | secret | RCON password |
-| `RCON_PORT` | variable | RCON port (default `25575`) |
-| `RCON_RESTART_COMMAND` | variable | Command sent after the announce (default `stop`; assumes your host auto-restarts) |
+## Secrets & variables
 
-## Coming in this template
+Everything below is optional. With none of them set, `ci.yml` and `release.yml` still
+build and attach the `.mrpack`, and every workflow stays green.
 
-This repo is being built out in stages. Still to land:
+| Name | Kind | Required for | Purpose |
+|---|---|---|---|
+| `MODRINTH_TOKEN` | secret | `release.yml` | Auth token for publishing to Modrinth (needs the **write-version** scope) |
+| `MODRINTH_PROJECT_ID` | variable | `release.yml` | Identifies which Modrinth project to publish to |
+| `FTP_HOST` | secret | `server-update.yml` | FTP server hostname for the pack upload |
+| `FTP_USER` | secret | `server-update.yml` | FTP username |
+| `FTP_PASSWORD` | secret | `server-update.yml` | FTP password |
+| `FTP_REMOTE_DIR` | variable | `server-update.yml` | Remote directory to upload the pack to (default `/`) |
+| `RCON_HOST` | secret | `server-update.yml` | RCON server hostname for the announce/restart |
+| `RCON_PORT` | variable | `server-update.yml` | RCON port (default `25575`) |
+| `RCON_PASSWORD` | secret | `server-update.yml` | RCON password |
+| `RCON_RESTART_COMMAND` | variable | `server-update.yml` | Command sent after the announce (default `stop`; assumes your host auto-restarts) |
 
-- **Full usage guide** — a proper walkthrough of forking this template for your own pack.
+## Removing a path you don't need
+
+- No Modrinth publishing or releases? Delete `.github/workflows/release.yml`, the
+  "Releasing" section above, its row in the [rename checklist](#rename-checklist), and
+  the `MODRINTH_TOKEN` / `MODRINTH_PROJECT_ID` rows in the
+  [secrets & variables](#secrets--variables) table.
+- No server to keep in sync? Delete `.github/workflows/server-update.yml`, the
+  `server/` directory (`server/README.md` and `server/start.sh` both only make sense
+  alongside it), and the "Updating a server" section and its rows in the
+  [secrets & variables](#secrets--variables) table above.
