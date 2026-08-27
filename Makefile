@@ -7,7 +7,7 @@
 # commit SHA. Bump deliberately, and re-run `make refresh` when you do.
 PACKWIZ_REF ?= dfd8b68a4796c763e25bad50265ea1f1233e24f1
 
-PACK_NAME    := schematic
+PACK_NAME    := $(shell sed -n 's/^name = "\(.*\)"/\1/p' pack.toml)
 PACK_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' pack.toml)
 BUILD_DIR    := build
 MRPACK       := $(BUILD_DIR)/$(PACK_NAME)-$(PACK_VERSION).mrpack

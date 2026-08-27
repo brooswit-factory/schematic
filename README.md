@@ -25,19 +25,25 @@ nothing else — it is a starting point, not a curated pack.
 ## Rename checklist
 
 Every place the name `schematic` (or the `brooswit-factory` author) appears. Verify
-with `grep -ri schematic .` — it should match this list exactly, aside from
-`index.toml`, which `make refresh` regenerates for you.
+with `grep -ri schematic .` — besides this list it will also match `index.toml`
+(which `make refresh` regenerates for you) and the `uses:
+brooswit-factory/schematic/.github/workflows/reusable-<name>.yml@v1` line in each
+of `ci.yml`, `release.yml`, and `server-update.yml`. **Leave those `uses:` lines
+alone** — they point at this project's upstream reusable workflows, not at your
+own pack, and renaming them will break all three of your workflows.
 
 | File | What to change |
 |---|---|
 | `pack.toml` | `name = "schematic"` and `author = "brooswit-factory"` |
-| `Makefile` | `PACK_NAME := schematic` (and the header comment on line 1) |
+| `Makefile` | the header comment on line 1 |
 | `README.md` | the `# schematic` title, and the `build/schematic-<version>.mrpack` mentions |
-| `.github/workflows/ci.yml` | artifact name `schematic-${{ steps.pack.outputs.version }}-mrpack` |
-| `.github/workflows/release.yml` | artifact name `schematic-${{ steps.ver.outputs.version }}-mrpack` |
 | `server/README.md` | the `schematic` modpack references |
 | `server/start.sh` | the header comment |
 | `LICENSE` | the copyright holder |
+
+The artifact name (`<name>-<version>-mrpack`) and the Modrinth publish target are
+both derived from `pack.toml` automatically — nothing to rename in the workflows
+themselves.
 
 Plus, if you use Modrinth: the project id you set in the `MODRINTH_PROJECT_ID`
 variable.
@@ -132,6 +138,15 @@ over FTP, then announces the update and restarts the server over RCON — see
 Both halves are independent and **skip cleanly** (the workflow still finishes green)
 when their secrets aren't configured, so this works out of the box on a fresh fork —
 you opt in by adding the secrets/variables below whenever you're ready.
+
+## Reusable workflows
+
+`ci.yml`, `release.yml`, and `server-update.yml` are thin stubs: each keeps only
+its trigger (`on:`) and any `permissions:` it needs, and calls this repo's
+actual logic via `uses: brooswit-factory/schematic/.github/workflows/reusable-<name>.yml@v1`.
+`v1` is a moving tag kept pointed at `main`, so pinning a consumer's stub to
+`@v1` picks up fixes to the reusable workflows automatically. Copy a stub
+as-is into a consumer repo; the reusable workflow it calls stays here.
 
 ## Secrets & variables
 
