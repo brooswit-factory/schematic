@@ -153,8 +153,10 @@ build and attach the `.mrpack`, and every workflow stays green.
 
 ## Removing a path you don't need
 
-- No Modrinth publishing or releases? Delete `.github/workflows/release.yml` — nothing
-  else in the repo references it.
+- No Modrinth publishing or releases? Delete `.github/workflows/release.yml`, the
+  "Releasing" section above, its row in the [rename checklist](#rename-checklist), and
+  the `MODRINTH_TOKEN` / `MODRINTH_PROJECT_ID` rows in the
+  [secrets & variables](#secrets--variables) table.
 - No server to keep in sync? Delete `.github/workflows/server-update.yml`, the
   `server/` directory (`server/README.md` and `server/start.sh` both only make sense
   alongside it), and the "Updating a server" section and its rows in the
