@@ -10,3 +10,4 @@ server/
 build/
 *.mrpack
 *.zip
+mods/.gitkeep
