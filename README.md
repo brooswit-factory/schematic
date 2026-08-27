@@ -90,10 +90,7 @@ git commit
 
 `ORIG_HEAD` is your branch tip as it was immediately before the merge — checking out
 `pack.toml`, `index.toml`, and `mods/` from it restores **your own content** there no
-matter what happened during the merge. It only restores paths that existed on your
-branch; it never deletes, so a file the template adds under `mods/` (such as its
-placeholder `mods/.gitkeep`) is kept — harmless, because `.packwizignore` keeps it out
-of the exported pack.
+matter what happened during the merge.
 
 That last point matters: git only reports a conflict on a file **both sides changed**.
 If the template deletes or changes a file you never touched — most importantly a mod
@@ -105,13 +102,18 @@ workflow stubs) that should track the template automatically, but it's exactly w
 rather than only for conflicted paths — it protects your pack content whether or not git
 flagged a conflict on it.
 
+One caveat: `git checkout ORIG_HEAD -- ...` only restores paths that existed on your
+branch; it never deletes, so a file the template adds under `mods/` (such as its
+placeholder `mods/.gitkeep`) is kept — harmless, because `.packwizignore` keeps it out
+of the exported pack.
+
 For the `--theirs` line, "other conflicted files you have not customised" typically
 means `Makefile`, `server/README.md`, and `server/start.sh` — take the template's
 version of these unless you've made local edits worth preserving. `README.md` is the
 one file you have almost certainly customised — reconcile it by hand: keep your
 pack-specific prose and fold in template improvements where they still apply. If you
-previously deleted `.github/workflows/tag-v1.yml` locally, you'll see it as a
-delete/modify conflict instead of a clean merge; per
+previously deleted `.github/workflows/tag-v1.yml` locally and the template has since
+changed it, you'll see it as a delete/modify conflict instead of a clean merge; per
 [Template-only files](#template-only-files) above, you don't need to delete it in
 the first place, so the simplest fix is to keep the template's version
 (`git checkout --theirs -- .github/workflows/tag-v1.yml`) rather than re-deleting it.
@@ -129,8 +131,7 @@ updates, pin a specific tag or commit SHA in place of `@v1` in your stub's `uses
 
 ## Template-only files
 
-Four files under `.github/workflows` are template-only — inert in any repo cloned from
-this template, and safe to leave in place:
+Four files under `.github/workflows` are template-only, and safe to leave in place:
 
 `tag-v1.yml` keeps the `v1` tag on **this** repo pointed at its own `main`. It is
 guarded by a `github.repository` check, so it is inert in any repo cloned from this
@@ -143,10 +144,11 @@ template — the job is skipped entirely, so it creates no tag in your repo.
 copies never run.
 
 There's no need to delete any of the four — doing so gains nothing, since they don't
-run locally either way, and it makes every future `git merge template/main` conflict on
-them, exactly when a template improvement to a reusable workflow would otherwise reach
-you with zero merge effort. A `git merge template/main` would just bring a deleted one
-back anyway.
+run locally either way, and deleting one only creates work for you later: a
+`git merge template/main` does not restore a file you deleted (your deletion simply
+persists, merge or no merge) until the template itself changes that file, at which
+point the merge stops with a delete/modify conflict you have to resolve by hand.
+Leaving the four alone avoids that conflict entirely, on every future merge.
 
 `ci.yml`, `release.yml`, and `server-update.yml` are the three stubs you, as a consumer
 of this template, need to care about — the four template-only files above need no
@@ -253,6 +255,7 @@ mods/                                one *.pw.toml file per mod, pinning a versi
 .github/workflows/release.yml       cuts a release (see Releasing above)
 .github/workflows/server-update.yml keeps a game server in sync (see server/README.md)
 .github/workflows/tag-v1.yml        template-only (see Template-only files above)
+.github/workflows/reusable-*.yml    template-only (see Template-only files above)
 Makefile                            the build entry point, shared by humans and CI
 server/                             sample scripts for running/updating a Forge server for this pack
 ```
