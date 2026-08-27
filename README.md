@@ -107,10 +107,31 @@ If either of these is not set, the release still builds and the `.mrpack` is sti
 attached to the GitHub Release — the Modrinth publish step is skipped and the workflow
 stays green.
 
+## Updating a server
+
+`.github/workflows/server-update.yml` runs on a published GitHub release, or on demand
+via `workflow_dispatch` (with an optional `version` input; it otherwise falls back to
+the `version` field in `pack.toml`). It uploads the packwiz pack to your game server
+over FTP, then announces the update and restarts the server over RCON — see
+[`server/README.md`](server/README.md) for how to set up the server side of this.
+
+Both halves are independent and **skip cleanly** (the workflow still finishes green)
+when their secrets aren't configured, so this works out of the box on a fresh fork —
+you opt in by adding the secrets/variables below whenever you're ready.
+
+| Name | Kind | Purpose |
+|---|---|---|
+| `FTP_HOST` | secret | FTP server hostname for the pack upload |
+| `FTP_USER` | secret | FTP username |
+| `FTP_PASSWORD` | secret | FTP password |
+| `FTP_REMOTE_DIR` | variable | Remote directory to upload the pack to (default `/`) |
+| `RCON_HOST` | secret | RCON server hostname for the announce/restart |
+| `RCON_PASSWORD` | secret | RCON password |
+| `RCON_PORT` | variable | RCON port (default `25575`) |
+| `RCON_RESTART_COMMAND` | variable | Command sent after the announce (default `stop`; assumes your host auto-restarts) |
+
 ## Coming in this template
 
 This repo is being built out in stages. Still to land:
 
-- **Server update** — CI uploads the pack to a game server over FTP, then announces and
-  reloads it over RCON.
 - **Full usage guide** — a proper walkthrough of forking this template for your own pack.
