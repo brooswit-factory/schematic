@@ -244,18 +244,76 @@ time, then re-points it, using this same server id.
 
 ## Live re-point + restart proof
 
-See the dedicated section below — run via a second push-triggered workflow
-(`repoint-proof.yml`) that invokes `repoint.sh` itself against the real
-server, per the requirement that the script be the thing that actually
-performs the re-point (not a hand-run curl session alongside it).
+**Status: reaches an exact, reproducible blocked step — a per-server
+authorization gate, distinct from the authentication question Q1 answers.**
+`repoint.sh` is the thing that actually attempted this (invoked by a
+temporary CI workflow, `repoint-proof.yml`, that supplied the real
+`MODRINTH_TOKEN` — not a hand-run curl session). Run:
+https://github.com/brooswit-minecraft/schematic/actions/runs/33190648580
+(rerun of the same run: same result, so not a one-off blip).
+
+**What was tried, in order, all against the real server
+`ff783f0f-ec3c-4037-b39f-452ce590891d`:**
+
+1. `GET /modrinth/v0/servers/ff783f0f-ec3c-4037-b39f-452ce590891d` (`repoint.sh` step 2, "capture BEFORE upstream") →
+   **HTTP 403, empty body.** This is `repoint.sh`'s own first live call, so it
+   never reached the `reinstall`/`power` calls that would actually change
+   anything — the server was never mutated.
+2. Diagnostic (read-only): compared the token's own identity
+   (`GET https://api.modrinth.com/v2/user`, bare-token form) against the
+   server's `owner_id` and `current_user_permissions` from the LIST response
+   (ids are not secrets, so these are safe to record in plain):
+   ```
+   token user id: XKg3yGJl | username: brooswit
+   server_id: ff783f0f-ec3c-4037-b39f-452ce590891d | owner_id: XKg3yGJl | current_user_permissions: -32768
+   users[XKg3yGJl]: {id: XKg3yGJl, username: brooswit}
+   ```
+   **The token's user IS the server's owner** (`owner_id` matches exactly) —
+   this rules out a simple ownership mismatch. `current_user_permissions:
+   -32768` is `0x8000` as a 16-bit value — only the sign/high bit is set, i.e.
+   **no actual permission flags are granted** on this server for this user,
+   despite being the owner.
+3. Diagnostic (safe — a rejected POST has no server-side effect): the same
+   token attempting the actual re-point mutation directly —
+   `POST /modrinth/v0/servers/ff783f0f-ec3c-4037-b39f-452ce590891d/reinstall?hard=false`
+   with body `{"project_id":"t1tOiUHZ","version_id":"Tg9n3zcA"}` →
+   **HTTP 404 "not found".** Different status than the GET's 403, but the
+   same underlying story: the mutation endpoint won't act on this server for
+   this token either.
+
+**Conclusion:** authentication (Q1) and per-resource authorization are two
+different gates. The token is genuinely live and Archon-accepted (LIST
+returns 200 and the real server), but a second, per-server permission check
+(`current_user_permissions`) blocks both reading (`403`) and mutating
+(`404`) this specific server, even for its confirmed owner. This looks like
+either (a) a permissions-sync gap for a server purchased only minutes before
+testing, or (b) the "full-admin Modrinth API key" being a platform/staff-tier
+credential that can enumerate servers but was never granted normal
+owner-level permissions on this specific one, or (c) a granular PAT scope
+(distinct from the admin/staff role itself) that this key lacks. Determining
+which requires either checking the PAT's scopes in the Modrinth account
+settings UI, waiting and retrying, or asking Modrinth support — not something
+resolvable from here without guessing. **The intended request shape (used
+above) is exactly what a real deploy workflow would send once this is
+resolved** — no changes needed to `repoint.sh` itself.
+
+The server was left untouched throughout (every blocked call was read-only
+or a rejected write) — it remains in its original state: running, `status:
+available`, `upstream: None`.
 
 ## AUTH VERDICT
 
-**CONFIRMED LIVE: `Authorization: Bearer <MODRINTH_TOKEN>` (the same
-long-lived Modrinth PAT already used for release publishing) is accepted by
-the Archon Servers API — HTTP 200 on `GET /modrinth/v0/servers` — provided
-the request also carries `X-Panel-Version: 1`.** No session JWT, no separate
-credential, no additional scope beyond whatever the existing PAT has. This
-resolves the open risk the whole spike exists to answer: a GitHub Actions
-workflow can hold exactly the credential this repo already has
-(`secrets.MODRINTH_TOKEN`) and drive the Servers API directly.
+**Token-level auth: CONFIRMED LIVE.** `Authorization: Bearer <MODRINTH_TOKEN>`
+(the same long-lived Modrinth PAT already used for release publishing) is
+accepted by the Archon Servers API — HTTP 200 on `GET /modrinth/v0/servers`
+— provided the request also carries `X-Panel-Version: 1`. No session JWT, no
+separate credential type. This resolves the primary open risk: a GitHub
+Actions workflow can hold exactly the credential this repo already has
+(`secrets.MODRINTH_TOKEN`) and it authenticates against Archon.
+
+**Per-server authorization: BLOCKED on this specific server**, for the
+confirmed owning account, with `current_user_permissions` reading as "no
+permissions granted" (see "Live re-point + restart proof" above). This is a
+human/Modrinth-account follow-up, not a code or credential-format problem —
+recommend checking the server's permissions/ownership state in the Modrinth
+dashboard, or contacting Modrinth support, before the next attempt.
