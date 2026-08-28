@@ -205,15 +205,19 @@ One-time setup:
 1. Buy a Modrinth Server.
 2. Install the pack on it once from your Modrinth project, so its upstream points at
    your project.
-3. Find the server's id, generally from its settings page / its URL in the Modrinth
-   dashboard.
-   <!-- KAN-717 may refine this wording once the exact location is pinned down. -->
-4. Set the `MODRINTH_SERVER_ID` repo variable (and `MODRINTH_TOKEN`, if you haven't
-   already set it for publishing).
+3. Find the server's id: it's the UUID in the dashboard URL
+   `modrinth.com/hosting/manage/<server_id>`. It's also returned as `server_id` by
+   `rinth servers list` (or `GET https://archon.modrinth.com/modrinth/v0/servers`).
+4. Set the `MODRINTH_SERVER_ID` and `MODRINTH_PROJECT_ID` repo variables (and
+   `MODRINTH_TOKEN`, if you haven't already set it for publishing).
 
 This **skips cleanly** (the workflow still finishes green) when `MODRINTH_SERVER_ID` /
 `MODRINTH_TOKEN` aren't configured, so this works out of the box on a fresh clone — you
-opt in by adding the variable/secret above whenever you're ready.
+opt in by adding the variable/secret above whenever you're ready. Once configured,
+`MODRINTH_PROJECT_ID` is required too — the workflow fails loudly rather than skipping
+if it's missing. The workflow re-points and restarts the server via the
+[`rinth`](https://github.com/brooswit-minecraft/rinth) CLI, invoked at a pinned version
+through `bunx`, so nothing needs installing in your repo.
 
 ## Working on the pack
 
