@@ -51,6 +51,15 @@ jobs:
               print('  users[', k, ']:', {kk: vv for kk, vv in v.items() if kk in ('id', 'username')})
           PYEOF
           python3 /tmp/diag.py
+          echo "--- also checking whether POST /reinstall is blocked the same way (body sent, but if rejected nothing happens server-side) ---"
+          status=$(curl -sS -o /tmp/reinstall_probe.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${MODRINTH_TOKEN}" -H "X-Panel-Version: 1" -H "Content-Type: application/json" \
+            -X POST -d '{"project_id":"t1tOiUHZ","version_id":"Tg9n3zcA"}' \
+            "https://archon.modrinth.com/modrinth/v0/servers/ff783f0f-ec3c-4037-b39f-452ce590891d/reinstall?hard=false")
+          echo "POST .../reinstall -> HTTP ${status}"
+          if ! grep -qF "$MODRINTH_TOKEN" /tmp/reinstall_probe.json; then
+            cat /tmp/reinstall_probe.json
+          fi
 
       - name: "Step A: bootstrap upstream (Create+ 6.0.0-alpha-d)"
         env:
