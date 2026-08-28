@@ -16,7 +16,7 @@ this template looks like.
 ## Getting started
 
 ```sh
-git clone https://github.com/brooswit-factory/schematic.git <yours>
+git clone https://github.com/brooswit-minecraft/schematic.git <yours>
 cd <yours>
 git remote rename origin template
 git remote add origin <your repo url>
@@ -58,9 +58,9 @@ Nothing under `.github/workflows` needs editing or deleting — see
 [Template-only files](#template-only-files) below for why.
 
 Verify with `grep -ri schematic .`: the only remaining hits should be this README, the
-`uses: brooswit-factory/schematic/.github/workflows/reusable-<name>.yml@v1` line in
+`uses: brooswit-minecraft/schematic/.github/workflows/reusable-<name>.yml@v1` line in
 each of `ci.yml`, `release.yml`, and `server-update.yml`, and the
-`if: github.repository == 'brooswit-factory/schematic'` guard in `tag-v1.yml`. **Leave
+`if: github.repository == 'brooswit-minecraft/schematic'` guard in `tag-v1.yml`. **Leave
 all of those alone** — the `uses:` lines point at this project's upstream reusable
 workflows, not at your own pack, and the `tag-v1.yml` guard is what keeps that
 template-only file from creating a tag in your repo (see
@@ -140,7 +140,7 @@ template — the job is skipped entirely, so it creates no tag in your repo.
 `reusable-ci.yml`, `reusable-release.yml`, and `reusable-server-update.yml` are
 `workflow_call`-only definitions — nothing invokes them by local path. Your stubs
 (`ci.yml`, `release.yml`, `server-update.yml`) call them **upstream**, at
-`brooswit-factory/schematic/.github/workflows/reusable-<name>.yml@v1`, so your local
+`brooswit-minecraft/schematic/.github/workflows/reusable-<name>.yml@v1`, so your local
 copies never run.
 
 There's no need to delete any of the four — doing so gains nothing, since they don't
