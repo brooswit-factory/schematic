@@ -49,11 +49,17 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 allowlist_print() {
-  # $1 = json file, $2 = mode (server|error)
+  # $1 = json file, $2 = mode (server|error). Tolerates an empty/non-JSON
+  # body (some error responses have none) instead of crashing.
   python3 - "$1" "$2" <<'PYEOF'
 import json, sys
 path, mode = sys.argv[1], sys.argv[2]
-d = json.load(open(path))
+try:
+    raw = open(path).read()
+    d = json.loads(raw) if raw.strip() else {}
+except json.JSONDecodeError:
+    print("(response body was not JSON, length:", len(raw), "bytes)")
+    sys.exit(0)
 if mode == "server":
     print("server_id:", d.get("server_id"), "| name:", d.get("name"),
           "| status:", d.get("status"), "| upstream:", d.get("upstream"))
