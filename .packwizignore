@@ -6,6 +6,7 @@ Makefile
 .packwizignore
 .github/
 scripts/
+spike/
 server/
 build/
 *.mrpack
