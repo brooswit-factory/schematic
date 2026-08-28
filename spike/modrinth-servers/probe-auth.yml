@@ -40,11 +40,18 @@ name: "[Spike KAN-723] Modrinth Servers auth probe"
 # - Responses are captured to a local file; only an allowlisted set of
 #   non-sensitive fields (or a status/error field) is ever printed.
 #
-# This file is a spike probe kept under spike/modrinth-servers/ as
-# reproducible proof; it is intentionally workflow_dispatch-only and is not
-# part of the deploy pipeline.
+# This file is a spike probe; it is not part of the deploy pipeline. It runs
+# on `push` to this branch rather than `workflow_dispatch` because
+# workflow_dispatch can only be triggered for a workflow file registered on
+# the repo's DEFAULT branch (documented GitHub behavior) — `push` has no such
+# restriction and org/repo secrets are available to same-repo push runs (the
+# fork-PR secret restriction doesn't apply here). Decision recorded on
+# KAN-723 (comment 2026-08-28T09:28, epic KAN-713). workflow_dispatch is kept
+# too for reuse once this ever lands on the default branch.
 
 on:
+  push:
+    branches: ['KAN-723']
   workflow_dispatch: {}
 
 permissions:
