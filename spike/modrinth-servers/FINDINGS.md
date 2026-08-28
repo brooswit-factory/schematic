@@ -248,9 +248,14 @@ time, then re-points it, using this same server id.
 authorization gate, distinct from the authentication question Q1 answers.**
 `repoint.sh` is the thing that actually attempted this (invoked by a
 temporary CI workflow, `repoint-proof.yml`, that supplied the real
-`MODRINTH_TOKEN` — not a hand-run curl session). Run:
-https://github.com/brooswit-minecraft/schematic/actions/runs/33190648580
-(rerun of the same run: same result, so not a one-off blip).
+`MODRINTH_TOKEN` — not a hand-run curl session).
+
+Runs (same underlying result across all of them — the GET-by-id 403 was
+reproduced on a manual rerun too, so not a one-off blip):
+- https://github.com/brooswit-minecraft/schematic/actions/runs/33190648580 —
+  `repoint.sh` step 2 (GET-by-id) 403, plus the token-vs-owner diagnostic.
+- https://github.com/brooswit-minecraft/schematic/actions/runs/33190779441 —
+  same diagnostic, plus the `POST /reinstall` probe (item 3 below).
 
 **What was tried, in order, all against the real server
 `ff783f0f-ec3c-4037-b39f-452ce590891d`:**
