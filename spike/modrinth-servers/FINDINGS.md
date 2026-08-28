@@ -336,6 +336,28 @@ The server was left untouched throughout (every blocked call was read-only
 or a rejected write) — it remains in its original state: running, `status:
 available`, `upstream: None`.
 
+## Independent confirmation (rinth, KAN-714)
+
+The auth verdict below was independently reproduced by the `rinth` epic
+(KAN-714/KAN-719/KAN-726) **via a different code path** — the official
+`@modrinth/api-client`, not raw curl — against the same account and server:
+<https://github.com/brooswit-minecraft/rinth/actions/runs/33191173396>
+
+- labrinth `GET /v2/user` (Bearer PAT) -> 200
+- Archon `GET /v0/servers` (Bearer PAT + `X-Panel-Version: 1`) -> 200, 1 server,
+  id `ff783f0f-ec3c-4037-b39f-452ce590891d` (matches §4)
+
+Two independent implementations reaching the same result raises confidence
+that this is a property of the API rather than an artifact of how this spike
+built its requests.
+
+**Additional gotcha from that run, important for anyone using the official
+client:** `@modrinth/api-client` 0.60.0 does **not** send `X-Panel-Version`
+by default. Its `PanelVersionFeature` exists but must be added explicitly to
+the client's `features` array — otherwise Archon returns 426 before
+evaluating auth (§0), even though you are using the official client. So §0
+applies to client users as much as to curl users.
+
 ## AUTH VERDICT
 
 **Token-level auth: CONFIRMED LIVE.** `Authorization: Bearer <MODRINTH_TOKEN>`
