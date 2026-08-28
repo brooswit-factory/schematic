@@ -7,7 +7,6 @@ Makefile
 .github/
 scripts/
 spike/
-server/
 build/
 *.mrpack
 *.zip
