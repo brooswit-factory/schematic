@@ -39,17 +39,18 @@ jobs:
         run: |
           curl -sS -o /tmp/me.json -H "Authorization: ${MODRINTH_TOKEN}" https://api.modrinth.com/v2/user
           curl -sS -o /tmp/list.json -H "Authorization: Bearer ${MODRINTH_TOKEN}" -H "X-Panel-Version: 1" https://archon.modrinth.com/modrinth/v0/servers
-          python3 -c "
-import json
-me = json.load(open('/tmp/me.json'))
-print('token user id:', me.get('id'), '| username:', me.get('username'))
-lst = json.load(open('/tmp/list.json'))
-for s in lst.get('servers', []):
-    print('server_id:', s.get('server_id'), '| owner_id:', s.get('owner_id'), '| current_user_permissions:', s.get('current_user_permissions'))
-print('users map keys:', list(lst.get('users', {}).keys()))
-for k, v in lst.get('users', {}).items():
-    print('  users[', k, ']:', {kk: vv for kk, vv in v.items() if kk in ('id','username')})
-"
+          cat > /tmp/diag.py <<'PYEOF'
+          import json
+          me = json.load(open('/tmp/me.json'))
+          print('token user id:', me.get('id'), '| username:', me.get('username'))
+          lst = json.load(open('/tmp/list.json'))
+          for s in lst.get('servers', []):
+              print('server_id:', s.get('server_id'), '| owner_id:', s.get('owner_id'), '| current_user_permissions:', s.get('current_user_permissions'))
+          print('users map keys:', list(lst.get('users', {}).keys()))
+          for k, v in lst.get('users', {}).items():
+              print('  users[', k, ']:', {kk: vv for kk, vv in v.items() if kk in ('id', 'username')})
+          PYEOF
+          python3 /tmp/diag.py
 
       - name: "Step A: bootstrap upstream (Create+ 6.0.0-alpha-d)"
         env:
