@@ -41,10 +41,10 @@ fi
 
 ARCHON_BASE="https://archon.modrinth.com/modrinth/v0"
 LABRINTH_BASE="https://api.modrinth.com/v2"
-# Bare token, no "Bearer " prefix — confirmed against the live server in the
-# probe workflow run (see FINDINGS.md Q1: bare-token PAT is accepted by
-# Archon; a Bearer-prefixed value is treated as a session JWT and fails).
-ARCHON_AUTH_HEADER="${MODRINTH_TOKEN}"
+# "Bearer <token>" — confirmed live against the real server in the probe
+# workflow run (see FINDINGS.md Q1: HTTP 200 with Bearer prefix, HTTP 401
+# with a bare token — the opposite of the pre-flight hypothesis).
+ARCHON_AUTH_HEADER="Bearer ${MODRINTH_TOKEN}"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 

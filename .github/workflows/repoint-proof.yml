@@ -1,0 +1,52 @@
+name: "[Spike KAN-723] repoint.sh live proof"
+
+# Temporary CI scaffolding for KAN-723 — NOT a deliverable itself (repoint.sh
+# is the deliverable). Runs repoint.sh twice against the real Modrinth
+# Server (server_id ff783f0f-ec3c-4037-b39f-452ce590891d, confirmed via the
+# auth probe) to produce the before/after re-point transcript the ticket
+# requires:
+#   Step A: bootstrap — install Create+ (t1tOiUHZ) version Tg9n3zcA
+#           (6.0.0-alpha-d) as the server's first-ever upstream.
+#   Step B: the actual proof — re-point to a DIFFERENT version of the same
+#           pack (3XKDXorU, 6.0.0-alpha-e) and apply it.
+# repoint.sh itself performs every API call; this workflow only supplies the
+# real MODRINTH_TOKEN (unavailable outside CI) and captures its output.
+#
+# Deleted (along with the .github/workflows/ copy of probe-auth.yml) in the
+# final commit on this branch before the PR is opened — see KAN-723/KAN-715
+# discussion on why a standing, secret-touching workflow should not ride
+# into main from a spike.
+
+on:
+  push:
+    branches: ['KAN-723']
+    paths: ['.github/workflows/repoint-proof.yml']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  repoint-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Step A: bootstrap upstream (Create+ 6.0.0-alpha-d)"
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          chmod +x spike/modrinth-servers/repoint.sh
+          ./spike/modrinth-servers/repoint.sh \
+            ff783f0f-ec3c-4037-b39f-452ce590891d \
+            t1tOiUHZ \
+            Tg9n3zcA
+
+      - name: "Step B: re-point proof (Create+ 6.0.0-alpha-e — different version, same pack)"
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          ./spike/modrinth-servers/repoint.sh \
+            ff783f0f-ec3c-4037-b39f-452ce590891d \
+            t1tOiUHZ \
+            3XKDXorU

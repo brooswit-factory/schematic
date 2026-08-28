@@ -76,10 +76,18 @@ Anyone reproducing any of the calls below needs this header. `repoint.sh` and
   trying to decode it specifically as a JWT and choking on a non-JWT string.
   This is suggestive but not proof — a live test with the real token is
   required to confirm, which is exactly what the ticket's required GitHub
-  Actions probe (§ Live auth test, below) does.
+  Actions probe (§ Live auth test, below) does. **This hypothesis turned out
+  to be backwards** — see the live results below. The 500-vs-401 split on
+  garbage input was real but not predictive of which *valid* token format
+  Archon accepts; garbage input just exercises error handling, not the
+  success path.
 
-**AUTH VERDICT:** see the "Live auth test" section below for the confirmed,
-evidence-backed answer using the real `MODRINTH_TOKEN` org secret.
+**AUTH VERDICT: CONFIRMED LIVE — the standard Modrinth PAT (`MODRINTH_TOKEN`,
+the same one used for release publishing) is accepted by Archon when sent as
+`Authorization: Bearer <token>`, alongside the mandatory `X-Panel-Version: 1`
+header (§0). No session JWT, no separate credential, no scope other than
+whatever the existing PAT already has.** See "Live auth test" below for the
+run URL and exact status codes.
 
 ## 2. RE-POINT — setting `upstream`
 
@@ -139,8 +147,9 @@ via `gh api search/code` against the monorepo), i.e. a human manages a server
 at `https://modrinth.com/hosting/manage/<server_id>` — the id is the last URL
 path segment on that page.
 
-**Real value:** see "Live auth test" below — recorded there once the
-list-servers call runs against the real account.
+**Real value: `ff783f0f-ec3c-4037-b39f-452ce590891d`** ("brooswit's server"),
+confirmed live via `GET /modrinth/v0/servers` — see "Live auth test" below.
+Dashboard URL: `https://modrinth.com/hosting/manage/ff783f0f-ec3c-4037-b39f-452ce590891d`.
 
 ## 5. VERSION LOOKUP
 
@@ -192,35 +201,61 @@ partial-auth scenario), which the live test below also has evidence on.
 
 ## Live auth test (GitHub Actions)
 
-**Status: BLOCKED on a GitHub platform constraint, not yet run.**
-`workflow_dispatch` can only be triggered for a workflow file that is
-registered on the repo's *default* branch — this is documented GitHub
-behavior, confirmed empirically: `gh api
-repos/brooswit-minecraft/schematic/actions/workflows` does not list
-`.github/workflows/probe-auth.yml` even though it is pushed to branch
-`KAN-723` (commit `3b2d73e`), and `gh workflow run probe-auth.yml --ref
-KAN-723` 404s with "workflow probe-auth.yml not found on the default
-branch." Flagged on KAN-723 (comment 2026-08-28T16:28) asking how to proceed
-without unilaterally pushing to `main`. This section will be filled in with
-the real HTTP status codes (and, if accepted, the real server id) once
-unblocked.
+**Status: RUN, CONFIRMED.** GitHub platform note first, since it shaped how
+this ran: `workflow_dispatch` can only be triggered for a workflow file
+registered on the repo's *default* branch (confirmed empirically — see
+KAN-723 comment 2026-08-28T16:28 — `gh workflow run` 404'd against branch
+KAN-723). Per KAN-713/KAN-715's decision (KAN-723 comment 2026-08-28T09:28),
+the probe was switched to `on: push: branches: ['KAN-723']`, which has no
+such restriction and still gets repo/org secrets for same-repo pushes.
+
+**Run:** https://github.com/brooswit-minecraft/schematic/actions/runs/33190198880
+(commit `16db7db`, workflow `.github/workflows/probe-auth.yml` / archived at
+`spike/modrinth-servers/probe-auth.yml`)
+
+**Results (status codes only, no secret values — GitHub's own log masking is
+a second line of defence on top of this script never printing the token):**
+
+| Call | Auth header form | HTTP status |
+|---|---|---|
+| `GET https://api.modrinth.com/v2/user` | bare token (documented labrinth form) | **200** |
+| `GET https://archon.modrinth.com/modrinth/v0/servers` | `Bearer <token>` | **200** |
+| `GET https://archon.modrinth.com/modrinth/v0/servers` | bare token | **401** |
+
+The labrinth call confirms the token itself is live. The Archon comparison is
+the answer to Q1: **`Authorization: Bearer <MODRINTH_TOKEN>` is accepted**
+(the client's `AuthFeature` default — see §1); the bare-token form that
+labrinth wants is rejected by Archon with a clean 401. Both Archon calls also
+required `X-Panel-Version: 1` (§0) or they 426 regardless of the credential.
+
+The accepted call returned **one real server** (allowlisted fields only —
+`server_id`, `name`, `status`, `upstream`; the response also carries
+`sftp_username`/`sftp_password`/`sftp_host` inline, which the parser never
+touches, see §6):
+
+```
+server count: 1
+server_id: ff783f0f-ec3c-4037-b39f-452ce590891d | name: brooswit's server | status: available | upstream: None
+```
+
+`upstream: None` confirms the server is fresh/empty exactly as the ticket
+said — the live re-point proof below installs an upstream for the first
+time, then re-points it, using this same server id.
 
 ## Live re-point + restart proof
 
-**Status: BLOCKED on the same auth-test dependency above** — `repoint.sh` is
-written and passes `bash -n` and local dry-run testing (argument validation,
-error paths, the public version-lookup call), but the archon calls it makes
-need the same live credential/dispatch path as the auth test to produce a
-real before/after transcript against the human's paid server.
+See the dedicated section below — run via a second push-triggered workflow
+(`repoint-proof.yml`) that invokes `repoint.sh` itself against the real
+server, per the requirement that the script be the thing that actually
+performs the re-point (not a hand-run curl session alongside it).
 
 ## AUTH VERDICT
 
-**Not yet final — pending the live GitHub Actions test above.** Current
-best-evidence hypothesis from source alone: a bare-token PAT (the same
-`MODRINTH_TOKEN` used for `mc-publish`/releases) is the credential Archon
-expects, sent as a plain `Authorization: <token>` header (no `Bearer`
-prefix) alongside the mandatory `X-Panel-Version: 1` header — NOT the
-`Authorization: Bearer <JWT>` form shown in the third-party docs, which more
-likely describes the secondary short-lived node/console token obtained
-*through* the primary Archon call. This will be confirmed or corrected by
-the live test.
+**CONFIRMED LIVE: `Authorization: Bearer <MODRINTH_TOKEN>` (the same
+long-lived Modrinth PAT already used for release publishing) is accepted by
+the Archon Servers API — HTTP 200 on `GET /modrinth/v0/servers` — provided
+the request also carries `X-Panel-Version: 1`.** No session JWT, no separate
+credential, no additional scope beyond whatever the existing PAT has. This
+resolves the open risk the whole spike exists to answer: a GitHub Actions
+workflow can hold exactly the credential this repo already has
+(`secrets.MODRINTH_TOKEN`) and drive the Servers API directly.

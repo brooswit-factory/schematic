@@ -52,6 +52,7 @@ name: "[Spike KAN-723] Modrinth Servers auth probe"
 on:
   push:
     branches: ['KAN-723']
+    paths: ['.github/workflows/probe-auth.yml']
   workflow_dispatch: {}
 
 permissions:
