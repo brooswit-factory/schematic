@@ -274,25 +274,55 @@ reproduced on a manual rerun too, so not a one-off blip):
    users[XKg3yGJl]: {id: XKg3yGJl, username: brooswit}
    ```
    **The token's user IS the server's owner** (`owner_id` matches exactly) —
-   this rules out a simple ownership mismatch. `current_user_permissions:
-   -32768` is `0x8000` as a 16-bit value — only the sign/high bit is set, i.e.
-   **no actual permission flags are granted** on this server for this user,
-   despite being the owner.
+   this rules out a simple ownership mismatch. `current_user_permissions` is
+   declared `export type UserScope = number` (`archon/types.ts` line 652) —
+   the type fixes no bit width, so the observed value `-32768` does **not**
+   decode to a single established meaning:
+   - as **i16**: `-32768` = `0x8000` — exactly one bit set (bit 15).
+   - as **i32**: `-32768` = `0xFFFF8000` — bit 15 *and* bits 16–31 all set,
+     i.e. many flags, not none — the opposite reading.
+   Nothing in the type or the response says which width applies, so **which
+   of these holds is undetermined from source alone.** Even the i16 reading
+   isn't cleanly "no permissions": the sibling `ServerUsers.v1.UserScope`
+   declares 15 named scopes (`SERVER_ADMIN`, `BASE_READ`, `POWER_ACTIONS`,
+   `EXEC_COMMANDS`, `FILES_WRITE`, `SETUP`, `BACKUPS`, `ADVANCED`,
+   `RESET_SERVER`, `MANAGE_USERS`, `SUPPORT_AGENT`, `INFRA_MANAGER`,
+   `INFRA_MANAGER_READ`, `INFRA_SERVERS_XFER`, `INFRA_USERS`) — if those map
+   to bits 0–14, bit 15 is a 16th, *unnamed* flag, so the i16 reading would
+   actually be "exactly one undocumented flag is set," not "nothing granted."
+   The only established fact is the raw observed value; what it means for
+   this account's access is not determined here.
 3. Diagnostic (safe — a rejected POST has no server-side effect): the same
    token attempting the actual re-point mutation directly —
    `POST /modrinth/v0/servers/ff783f0f-ec3c-4037-b39f-452ce590891d/reinstall?hard=false`
    with body `{"project_id":"t1tOiUHZ","version_id":"Tg9n3zcA"}` →
-   **HTTP 404 "not found".** Different status than the GET's 403, but the
-   same underlying story: the mutation endpoint won't act on this server for
-   this token either.
+   **HTTP 404 "not found".** A different status than the GET's 403. The
+   leading hypothesis is still a shared per-resource permission gate (a pure
+   permission check would typically produce the *same* status for read and
+   write on the same resource, though APIs are not required to be
+   consistent about this) — but a 403-vs-404 split is *also* consistent with
+   the mutation route itself being slightly off (the `hard` query param, the
+   exact path, or something else in the `v0` prefix), which source alone
+   doesn't rule out. What would distinguish the two: does a **known-bad**
+   (nonexistent) server id return 404 on this same reinstall call? If yes,
+   404 is this route's generic "can't act on this id" response (permission
+   gate, consistent story); if a nonexistent id instead 404s while THIS real
+   id also 404s, that's still ambiguous; if a nonexistent id behaves
+   differently again, the route shape itself is suspect. Not run here to
+   avoid more live traffic against the real server on a diagnostic that
+   isn't required to answer the ticket's six questions — noted as the
+   concrete next check for whoever picks this up.
 
 **Conclusion:** authentication (Q1) and per-resource authorization are two
 different gates. The token is genuinely live and Archon-accepted (LIST
-returns 200 and the real server), but a second, per-server permission check
-(`current_user_permissions`) blocks both reading (`403`) and mutating
-(`404`) this specific server, even for its confirmed owner. This looks like
-either (a) a permissions-sync gap for a server purchased only minutes before
-testing, or (b) the "full-admin Modrinth API key" being a platform/staff-tier
+returns 200 and the real server), but reading and mutating this specific
+server both fail (`403` then `404`) despite the token belonging to the
+confirmed owner. The leading hypothesis is a per-server permission gate
+(`current_user_permissions`), though its exact value doesn't decode to an
+established meaning (see above) and the status-code asymmetry leaves the
+mutation-route-shape alternative on the table too. This looks like either
+(a) a permissions-sync gap for a server purchased only minutes before
+testing, (b) the "full-admin Modrinth API key" being a platform/staff-tier
 credential that can enumerate servers but was never granted normal
 owner-level permissions on this specific one, or (c) a granular PAT scope
 (distinct from the admin/staff role itself) that this key lacks. Determining
@@ -317,8 +347,11 @@ Actions workflow can hold exactly the credential this repo already has
 (`secrets.MODRINTH_TOKEN`) and it authenticates against Archon.
 
 **Per-server authorization: BLOCKED on this specific server**, for the
-confirmed owning account, with `current_user_permissions` reading as "no
-permissions granted" (see "Live re-point + restart proof" above). This is a
-human/Modrinth-account follow-up, not a code or credential-format problem —
-recommend checking the server's permissions/ownership state in the Modrinth
-dashboard, or contacting Modrinth support, before the next attempt.
+confirmed owning account (`GET` 403, `POST /reinstall` 404) — see "Live
+re-point + restart proof" above for the full evidence, including why the
+raw `current_user_permissions: -32768` value does not decode to an
+established meaning (the type is an unwidthed `number`; i16 and i32 readings
+disagree). This is a human/Modrinth-account follow-up, not a code or
+credential-format problem — recommend checking the server's
+permissions/ownership state in the Modrinth dashboard, or contacting
+Modrinth support, before the next attempt.
