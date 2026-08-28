@@ -1,0 +1,40 @@
+name: KAN-733 configured-path probe
+
+# TEMPORARY — proves the configured re-point-and-restart path against the
+# real Modrinth server (vars.MODRINTH_SERVER_ID = ff783f0f-ec3c-4037-b39f-
+# 452ce590891d, a repo variable, not a secret) using the public test modpack
+# the KAN-715 spike used (project t1tOiUHZ "Create+", version BSg2ZS8u =
+# 6.0.0-alpha-f), because MODRINTH_PROJECT_ID is not set anywhere and this
+# task is instructed not to invent one or set it as a real repo variable.
+#
+# This is NOT `uses: ./.github/workflows/reusable-server-update.yml` — that
+# reusable workflow reads PROJECT_ID from vars.MODRINTH_PROJECT_ID directly,
+# and there is no workflow_call input to override it, so it cannot be pointed
+# at the public test project without setting a real repo variable (which is
+# out of scope here). Instead this is a probe-local replica of the exact
+# "Update Modrinth server" step body from reusable-server-update.yml@591e737
+# — same rinth invocation, same sha pin, same env-only discipline — with
+# PROJECT_ID and VERSION_ID hardcoded to the public test values instead of
+# read from vars/a prior step. Deleted after the proof run.
+
+on:
+  push:
+    branches: [KAN-733]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe configured path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Update Modrinth server (probe replica)
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          SERVER_ID: ${{ vars.MODRINTH_SERVER_ID }}
+          PROJECT_ID: t1tOiUHZ
+          VERSION_ID: BSg2ZS8u
+        run: bunx --bun github:brooswit-minecraft/rinth#206e4e4d9913c5c0013cf3109c237cd4bb84954e servers upstream "$SERVER_ID" --project "$PROJECT_ID" --version "$VERSION_ID" --restart --json
