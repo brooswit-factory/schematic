@@ -1,0 +1,151 @@
+name: "[Spike KAN-723] Modrinth Servers auth probe"
+
+# One-off probe for KAN-723 (spike/modrinth-servers/). Tests whether the
+# existing MODRINTH_TOKEN org secret (a Modrinth PAT, mrp_... format, used
+# elsewhere for publishing — see reusable-release.yml) is accepted by the
+# Servers (Archon) management API at https://archon.modrinth.com, and
+# compares against labrinth GET /v2/user as a live-token sanity check.
+#
+# Endpoints and header formats are sourced from github.com/modrinth/code:
+#   - archonBaseUrl = https://archon.modrinth.com
+#       (apps/app-frontend/src/config.ts)
+#   - GET /modrinth/v0/servers  (list servers for the authenticated user)
+#       (packages/api-client/src/modules/archon/servers/v0.ts)
+#   - labrinth PAT header is the BARE token with no "Bearer" prefix per
+#     https://docs.modrinth.com/api/ (example: "Authorization: mrp_...").
+#     The Archon client's generic AuthFeature defaults to a "Bearer " prefix
+#     (packages/api-client/src/features/auth.ts) — that mismatch is exactly
+#     the open question, so this probe tests labrinth with the documented
+#     bare-token form (to get an unambiguous liveness read) and tests Archon
+#     with BOTH the Bearer-prefixed form (ticket's ask, and the client's
+#     default) and the bare-token form (in case Archon actually expects the
+#     same convention as labrinth).
+#   - Archon rejects EVERY request (before auth is even checked) with
+#     HTTP 426 "unsupported archon request version" unless it carries
+#     X-Panel-Version: 1 (packages/api-client/src/features/panel-version.ts,
+#     applied to both the labrinth and archon APIs by the client). Verified
+#     locally pre-flight: a request without this header 426s; adding it lets
+#     a request with a garbage token reach real auth handling (400/401/500
+#     depending on path/token shape) instead.
+#
+# CREDENTIAL-FIELD WARNING: the Archon Server object (from both the list and
+# get-by-id endpoints) includes sftp_username/sftp_password/sftp_host
+# in-line. The parsing below allowlists only non-sensitive fields
+# (server_id, name, status, upstream) and never touches those keys.
+#
+# REDACTION RULES (absolute — see KAN-723):
+# - The MODRINTH_TOKEN value must never appear in any log, output, or artifact.
+# - No `set -x`. The token is only ever read via `env:`, never interpolated
+#   into a command line or `run:` string directly.
+# - Responses are captured to a local file; only an allowlisted set of
+#   non-sensitive fields (or a status/error field) is ever printed.
+#
+# This file is a spike probe; it is not part of the deploy pipeline. It runs
+# on `push` to this branch rather than `workflow_dispatch` because
+# workflow_dispatch can only be triggered for a workflow file registered on
+# the repo's DEFAULT branch (documented GitHub behavior) — `push` has no such
+# restriction and org/repo secrets are available to same-repo push runs (the
+# fork-PR secret restriction doesn't apply here). Decision recorded on
+# KAN-723 (comment 2026-08-28T09:28, epic KAN-713). workflow_dispatch is kept
+# too for reuse once this ever lands on the default branch.
+
+on:
+  push:
+    branches: ['KAN-723']
+    paths: ['.github/workflows/probe-auth.yml']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write allowlist parser (never touches sftp_* fields)
+        run: |
+          cat > /tmp/print_allowlisted.py <<'PYEOF'
+          import json, sys
+          path, mode = sys.argv[1], sys.argv[2]
+          d = json.load(open(path))
+          if mode == "user":
+              print("username field present:", "username" in d)
+              print("id field present:", "id" in d)
+          elif mode == "servers":
+              servers = d.get("servers", d if isinstance(d, list) else [])
+              print("server count:", len(servers))
+              for s in servers:
+                  print("server_id:", s.get("server_id"), "| name:", s.get("name"),
+                        "| status:", s.get("status"), "| upstream:", s.get("upstream"))
+          elif mode == "error":
+              print("error field:", d.get("error"))
+              print("description field:", d.get("description"))
+          PYEOF
+
+      - name: Probe labrinth GET /v2/user (documented bare-token auth; proves the token itself is live)
+        id: user_probe
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          if [ -z "$MODRINTH_TOKEN" ]; then
+            echo "MODRINTH_TOKEN is not set — cannot probe" >&2
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/user_body.json -w '%{http_code}' \
+            -H "Authorization: ${MODRINTH_TOKEN}" \
+            https://api.modrinth.com/v2/user)
+          echo "GET /v2/user (bare token) -> HTTP ${status}"
+          echo "user_status=${status}" >> "$GITHUB_OUTPUT"
+          if grep -qF "$MODRINTH_TOKEN" /tmp/user_body.json; then
+            echo "REFUSING to print response body — it appears to contain the token" >&2
+            exit 1
+          fi
+          if [ "$status" = "200" ]; then
+            python3 /tmp/print_allowlisted.py /tmp/user_body.json user
+          else
+            python3 /tmp/print_allowlisted.py /tmp/user_body.json error || echo "(body not JSON or unreadable)"
+          fi
+
+      - name: Probe Archon GET /modrinth/v0/servers (Bearer-prefixed — ticket's ask / client default)
+        id: servers_probe_bearer
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          status=$(curl -sS -o /tmp/servers_bearer.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${MODRINTH_TOKEN}" \
+            -H "X-Panel-Version: 1" \
+            https://archon.modrinth.com/modrinth/v0/servers)
+          echo "GET archon.modrinth.com/modrinth/v0/servers (Bearer prefix) -> HTTP ${status}"
+          echo "servers_bearer_status=${status}" >> "$GITHUB_OUTPUT"
+          if grep -qF "$MODRINTH_TOKEN" /tmp/servers_bearer.json; then
+            echo "REFUSING to print response body — it appears to contain the token" >&2
+            exit 1
+          fi
+          if [ "$status" = "200" ]; then
+            python3 /tmp/print_allowlisted.py /tmp/servers_bearer.json servers
+          else
+            python3 /tmp/print_allowlisted.py /tmp/servers_bearer.json error || echo "(body not JSON or unreadable)"
+          fi
+
+      - name: Probe Archon GET /modrinth/v0/servers (bare token — labrinth-style, secondary comparison)
+        id: servers_probe_bare
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          status=$(curl -sS -o /tmp/servers_bare.json -w '%{http_code}' \
+            -H "Authorization: ${MODRINTH_TOKEN}" \
+            -H "X-Panel-Version: 1" \
+            https://archon.modrinth.com/modrinth/v0/servers)
+          echo "GET archon.modrinth.com/modrinth/v0/servers (bare token) -> HTTP ${status}"
+          echo "servers_bare_status=${status}" >> "$GITHUB_OUTPUT"
+          if grep -qF "$MODRINTH_TOKEN" /tmp/servers_bare.json; then
+            echo "REFUSING to print response body — it appears to contain the token" >&2
+            exit 1
+          fi
+          echo "(body not printed for this comparison call — status code is the signal)"
+
+      - name: Verdict
+        run: |
+          echo "labrinth /v2/user (bare token):   ${{ steps.user_probe.outputs.user_status }}"
+          echo "archon /servers (Bearer <token>): ${{ steps.servers_probe_bearer.outputs.servers_bearer_status }}"
+          echo "archon /servers (bare token):      ${{ steps.servers_probe_bare.outputs.servers_bare_status }}"
