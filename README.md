@@ -189,7 +189,9 @@ gh workflow run release.yml --ref <branch> -f version=0.0.1-test
 
 This builds and uploads the `.mrpack` as a workflow artifact but skips the
 Release-asset step (there is no Release object to attach to) and the Modrinth publish
-step, the same as any run without Modrinth configured.
+step, the same as any run without Modrinth configured. **A `workflow_dispatch` run
+never publishes to Modrinth, even when `MODRINTH_TOKEN` and `MODRINTH_PROJECT_ID` are
+both configured** — the Modrinth publish only ever runs on the `release` event.
 
 ## Deploying to a Modrinth Server
 
