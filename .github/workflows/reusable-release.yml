@@ -1,10 +1,12 @@
 name: Reusable Release
 
 # Callable from a consumer's thin release.yml stub. Builds the .mrpack,
-# attaches it to a GitHub Release (when the caller was itself triggered by a
-# release being published), and optionally publishes to Modrinth. Runs
-# against the CALLER's checkout — actions/checkout below checks out whichever
-# repo invoked this workflow, not this one.
+# attaches it to a GitHub Release, and publishes to Modrinth when configured
+# — both of those only when the caller was itself triggered by a release
+# being published; a workflow_dispatch dry run never does either, regardless
+# of Modrinth configuration. Runs against the CALLER's checkout —
+# actions/checkout below checks out whichever repo invoked this workflow,
+# not this one.
 #
 # `github.event_name` / `github.event.release.*` here reflect the CALLER's
 # original triggering event, not a synthetic "workflow_call" event — verified
@@ -104,15 +106,23 @@ jobs:
       # consumer's own pack.toml [versions] table. `loaders` is whichever of
       # forge/fabric/neoforge/quilt keys are present (packwiz packs pin
       # exactly one loader version each, but mc-publish accepts a list).
+      # Modrinth publish is gated to the `release` event only — a
+      # workflow_dispatch dry run must never publish, even when Modrinth is
+      # configured. See the "Skip Modrinth publish (dry run)" step below for
+      # the has_modrinth-but-not-release case.
       - name: Resolve Modrinth targets
-        if: steps.modrinth_check.outputs.has_modrinth == 'true'
+        if: steps.modrinth_check.outputs.has_modrinth == 'true' && github.event_name == 'release'
         id: targets
         run: |
           echo "minecraft=$(sed -n 's/^minecraft = "\(.*\)"/\1/p' pack.toml)" >> "$GITHUB_OUTPUT"
           echo "loaders=$(sed -n -E 's/^(forge|fabric|neoforge|quilt) = ".*"/\1/p' pack.toml | paste -sd, -)" >> "$GITHUB_OUTPUT"
 
+      - name: Skip Modrinth publish (dry run)
+        if: steps.modrinth_check.outputs.has_modrinth == 'true' && github.event_name != 'release'
+        run: echo "workflow_dispatch — skipping Modrinth publish (dry run, not a release event)"
+
       - name: Publish to Modrinth
-        if: steps.modrinth_check.outputs.has_modrinth == 'true'
+        if: steps.modrinth_check.outputs.has_modrinth == 'true' && github.event_name == 'release'
         uses: Kir-Antipov/mc-publish@v3.3
         with:
           modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}

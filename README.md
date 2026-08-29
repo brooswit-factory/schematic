@@ -189,7 +189,9 @@ gh workflow run release.yml --ref <branch> -f version=0.0.1-test
 
 This builds and uploads the `.mrpack` as a workflow artifact but skips the
 Release-asset step (there is no Release object to attach to) and the Modrinth publish
-step, the same as any run without Modrinth configured.
+step, the same as any run without Modrinth configured. **A `workflow_dispatch` run
+never publishes to Modrinth, even when `MODRINTH_TOKEN` and `MODRINTH_PROJECT_ID` are
+both configured** — the Modrinth publish only ever runs on the `release` event.
 
 ## Deploying to a Modrinth Server
 
@@ -218,6 +220,13 @@ opt in by adding the variable/secret above whenever you're ready. Once configure
 if it's missing. The workflow re-points and restarts the server via the
 [`rinth`](https://github.com/brooswit-minecraft/rinth) CLI, invoked at a pinned version
 through `bunx`, so nothing needs installing in your repo.
+
+Looking up the published version on Modrinth is **authenticated with `MODRINTH_TOKEN`**:
+a Modrinth project stays a draft — invisible to unauthenticated reads — until Modrinth
+moderation approves it, so without authentication a first-release consumer could never
+be followed. Because the release workflow and this one both fire on the same published
+release and this one has to wait for the release workflow to finish publishing to
+Modrinth, the lookup polls, bounded to about 5 minutes, before failing.
 
 ## Working on the pack
 
