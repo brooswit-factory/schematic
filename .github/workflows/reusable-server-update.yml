@@ -81,19 +81,77 @@ jobs:
         run: echo "MODRINTH_SERVER_ID / MODRINTH_TOKEN not set — skipping Modrinth server update"
 
       # Looks up the just-published version on Modrinth by its version
-      # number. A miss here means the release hasn't published to Modrinth
-      # yet, which is a real error worth failing loudly for, not a skip.
+      # number. The read is authenticated (MODRINTH_TOKEN as an Authorization
+      # header) because a Modrinth project stays a DRAFT — invisible to
+      # unauthenticated reads — until Modrinth moderation approves it, which
+      # every consumer's first releases go through unauthenticated.
+      # On the release path, release.yml and server-update.yml both fire on
+      # the same `release: published` event with no ordering dependency, so
+      # reusable-release.yml may still be building/publishing the .mrpack
+      # when this step starts; this polls, bounded, for up to ~5 minutes
+      # (20 attempts x 15s) before failing. On workflow_dispatch the version
+      # is expected to already exist (a manual re-point), so it tries once
+      # and fails fast. Exhausting the budget without a match is a real
+      # error worth failing loudly for, not a skip.
       - name: Resolve published version id
         if: steps.config.outputs.configured == 'true'
         id: modrinth_version
         env:
           PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
           VERSION: ${{ steps.version.outputs.version }}
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          versions="$(curl -fsSL -H "User-Agent: brooswit-minecraft/schematic (server-update workflow)" "https://api.modrinth.com/v2/project/${PROJECT_ID}/version")"
-          version_id="$(printf '%s' "$versions" | jq -r --arg v "$VERSION" '[.[] | select(.version_number == $v)][0].id // empty')"
+          # curl -f collapses any HTTP error into a generic exit, which would
+          # make a 404 (project not visible) indistinguishable from a 200
+          # with no matching version (version not published yet). Capture
+          # the status code explicitly instead so the two causes can be
+          # reported separately below.
+          if [ "$EVENT_NAME" = "release" ]; then
+            max_attempts=20
+            interval=15
+          else
+            max_attempts=1
+            interval=15
+          fi
+          total_budget=$((max_attempts * interval))
+
+          version_id=""
+          http_code=""
+          attempt=1
+          while [ "$attempt" -le "$max_attempts" ]; do
+            http_code="$(curl -sSL -o /tmp/modrinth_versions.json -w '%{http_code}' \
+              -H "Authorization: $MODRINTH_TOKEN" \
+              -H "User-Agent: brooswit-minecraft/schematic (server-update workflow)" \
+              "https://api.modrinth.com/v2/project/${PROJECT_ID}/version")"
+
+            if [ "$http_code" = "200" ]; then
+              version_id="$(jq -r --arg v "$VERSION" '[.[] | select(.version_number == $v)][0].id // empty' /tmp/modrinth_versions.json)"
+              if [ -n "$version_id" ]; then
+                echo "Attempt ${attempt}/${max_attempts}: found Modrinth version ${VERSION} for project ${PROJECT_ID}."
+                break
+              fi
+            elif [ "$http_code" != "404" ]; then
+              echo "::error::Modrinth API request for project ${PROJECT_ID} failed with HTTP ${http_code} (attempt ${attempt}/${max_attempts})."
+              exit 1
+            fi
+
+            elapsed=$(((attempt - 1) * interval))
+            remaining=$((total_budget - elapsed))
+            echo "Attempt ${attempt}/${max_attempts}: no matching Modrinth version yet for project ${PROJECT_ID} version ${VERSION} (elapsed ${elapsed}s, ~${remaining}s of the ~${total_budget}s budget remaining)."
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep "$interval"
+            fi
+            attempt=$((attempt + 1))
+          done
+
           if [ -z "$version_id" ]; then
-            echo "::error::No Modrinth version found for project ${PROJECT_ID} with version_number ${VERSION} — has this release been published to Modrinth yet?"
+            if [ "$http_code" = "404" ]; then
+              echo "::error::Modrinth project ${PROJECT_ID} is not visible (HTTP 404) — it may still be a draft awaiting Modrinth moderation approval, the project id may be wrong, or MODRINTH_TOKEN may lack access to it."
+            else
+              echo "::error::No Modrinth version found for project ${PROJECT_ID} with version_number ${VERSION} after ${max_attempts} attempt(s) over ~${total_budget}s — has this release been published to Modrinth yet?"
+            fi
             exit 1
           fi
           echo "id=$version_id" >> "$GITHUB_OUTPUT"

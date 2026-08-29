@@ -219,6 +219,13 @@ if it's missing. The workflow re-points and restarts the server via the
 [`rinth`](https://github.com/brooswit-minecraft/rinth) CLI, invoked at a pinned version
 through `bunx`, so nothing needs installing in your repo.
 
+Looking up the published version on Modrinth is **authenticated with `MODRINTH_TOKEN`**:
+a Modrinth project stays a draft — invisible to unauthenticated reads — until Modrinth
+moderation approves it, so without authentication a first-release consumer could never
+be followed. Because the release workflow and this one both fire on the same published
+release and this one has to wait for the release workflow to finish publishing to
+Modrinth, the lookup polls, bounded to about 5 minutes, before failing.
+
 ## Working on the pack
 
 ```sh
