@@ -231,7 +231,9 @@ be followed. The lookup still polls, bounded to about 5 minutes, before failing 
 the chained `workflow_run` trigger that's now just insurance against a lag between
 Modrinth's publish and that version becoming visible over its API; on the older
 `release: published` trigger it's still doing its original job, since that trigger
-races the release workflow with no ordering guarantee between them.
+races the release workflow with no ordering guarantee between them. The ~5 minute
+bound was checked against a real chained release and kept as-is; any consumer still
+on `release: published` (like schematic-example) depends on that same bound today.
 
 ### The stub pattern
 
