@@ -107,20 +107,27 @@ jobs:
         if: steps.config.outputs.configured != 'true'
         run: echo "MODRINTH_SERVER_ID / MODRINTH_TOKEN not set — skipping Modrinth server update"
 
+      - uses: oven-sh/setup-bun@v2
+        if: steps.config.outputs.configured == 'true'
+
       # Looks up the just-published version on Modrinth by its version
-      # number. The read is authenticated (MODRINTH_TOKEN as an Authorization
-      # header) because a Modrinth project stays a DRAFT — invisible to
-      # unauthenticated reads — until Modrinth moderation approves it, which
-      # every consumer's first releases go through unauthenticated.
+      # number, via the rinth CLI (pinned #v0.9.0 — see the pin note on the
+      # "Update Modrinth server" step below for why a tag, not a branch).
+      # rinth's transport reads MODRINTH_TOKEN from the environment and
+      # requires it unconditionally, so this lookup is authenticated because
+      # a Modrinth project stays a DRAFT — invisible to unauthenticated
+      # reads — until Modrinth moderation approves it, which every
+      # consumer's first releases go through.
       # On the release path, release.yml and server-update.yml both fire on
       # the same `release: published` event with no ordering dependency, so
       # reusable-release.yml may still be building/publishing the .mrpack
-      # when this step starts; this polls, bounded, for up to ~5 minutes
-      # (20 attempts x 15s) before failing. That race is why a consumer's
+      # when this step starts; `--wait 300 --wait-interval 15` bounds this to
+      # up to ~5 minutes (20 attempts x 15s) before failing, matching the
+      # legacy curl loop's budget exactly. That race is why a consumer's
       # stub should chain on workflow_run instead (see server-update.yml and
       # the README migration note) — once chained, this step no longer races
       # reusable-release.yml, since the stub only fires after the Release
-      # workflow run has already completed. The poll still runs on that path
+      # workflow run has already completed. The wait still runs on that path
       # too, now purely as insurance against Modrinth publish-to-API-visibility
       # lag rather than as a race mitigation. Sizing was reviewed against a
       # real chained release (sickos run 33322343392: found on attempt 1/20,
@@ -130,9 +137,18 @@ jobs:
       # release path's budget can't shrink regardless: it must stay large as
       # long as any consumer (schematic-example today) is still on
       # `release: published` instead of chaining. On workflow_dispatch the
-      # version is expected to already exist (a manual re-point), so it
-      # tries once and fails fast. Exhausting the budget without a match is
-      # a real error worth failing loudly for, not a skip.
+      # version is expected to already exist (a manual re-point), so
+      # `--wait` is omitted entirely — rinth's default is exactly one
+      # attempt, i.e. fail fast. Exhausting the budget without a match is a
+      # real error worth failing loudly for, not a skip.
+      #
+      # rinth distinguishes a draft/unreadable project (exit 4,
+      # project_unreadable) from "project readable, no matching version"
+      # (exit 7 no_version_match, or exit 8 wait_exhausted once a --wait
+      # budget runs out) the same way the old curl loop drew that
+      # distinction by capturing the HTTP status instead of using `curl -f`.
+      # Each exit code below is mapped to its own ::error:: line rather than
+      # letting a raw exit code or rinth's own message be the only output.
       - name: Resolve published version id
         if: steps.config.outputs.configured == 'true'
         id: modrinth_version
@@ -142,67 +158,57 @@ jobs:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          # curl -f collapses any HTTP error into a generic exit, which would
-          # make a 404 (project not visible) indistinguishable from a 200
-          # with no matching version (version not published yet). Capture
-          # the status code explicitly instead so the two causes can be
-          # reported separately below.
           if [ "$EVENT_NAME" = "release" ] || [ "$EVENT_NAME" = "workflow_run" ]; then
-            max_attempts=20
-            interval=15
+            wait_args=(--wait 300 --wait-interval 15)
           else
-            max_attempts=1
-            interval=15
+            wait_args=()
           fi
-          total_budget=$((max_attempts * interval))
 
-          version_id=""
-          http_code=""
-          attempt=1
-          while [ "$attempt" -le "$max_attempts" ]; do
-            http_code="$(curl -sSL -o /tmp/modrinth_versions.json -w '%{http_code}' \
-              -H "Authorization: $MODRINTH_TOKEN" \
-              -H "User-Agent: brooswit-minecraft/schematic (server-update workflow)" \
-              "https://api.modrinth.com/v2/project/${PROJECT_ID}/version")"
+          set +e
+          stdout="$(bunx --bun github:brooswit-minecraft/rinth#v0.9.0 versions latest "$PROJECT_ID" --version-number "$VERSION" "${wait_args[@]}" --json 2>/tmp/rinth_stderr.json)"
+          status=$?
+          set -e
+          stderr="$(cat /tmp/rinth_stderr.json)"
 
-            if [ "$http_code" = "200" ]; then
-              version_id="$(jq -r --arg v "$VERSION" '[.[] | select(.version_number == $v)][0].id // empty' /tmp/modrinth_versions.json)"
-              if [ -n "$version_id" ]; then
-                echo "Attempt ${attempt}/${max_attempts}: found Modrinth version ${VERSION} for project ${PROJECT_ID}."
-                break
-              fi
-            elif [ "$http_code" != "404" ]; then
-              echo "::error::Modrinth API request for project ${PROJECT_ID} failed with HTTP ${http_code} (attempt ${attempt}/${max_attempts})."
+          if [ "$status" -eq 0 ]; then
+            version_id="$(printf '%s' "$stdout" | jq -r '.id')"
+            if [ -z "$version_id" ] || [ "$version_id" = "null" ]; then
+              echo "::error::rinth versions latest exited 0 but produced no usable version id (got: ${stdout})."
               exit 1
             fi
-
-            elapsed=$(((attempt - 1) * interval))
-            remaining=$((total_budget - elapsed))
-            echo "Attempt ${attempt}/${max_attempts}: no matching Modrinth version yet for project ${PROJECT_ID} version ${VERSION} (elapsed ${elapsed}s, ~${remaining}s of the ~${total_budget}s budget remaining)."
-
-            if [ "$attempt" -lt "$max_attempts" ]; then
-              sleep "$interval"
-            fi
-            attempt=$((attempt + 1))
-          done
-
-          if [ -z "$version_id" ]; then
-            if [ "$http_code" = "404" ]; then
-              echo "::error::Modrinth project ${PROJECT_ID} is not visible (HTTP 404) — it may still be a draft awaiting Modrinth moderation approval, the project id may be wrong, or MODRINTH_TOKEN may lack access to it."
-            else
-              echo "::error::No Modrinth version found for project ${PROJECT_ID} with version_number ${VERSION} after ${max_attempts} attempt(s) over ~${total_budget}s — has this release been published to Modrinth yet?"
-            fi
-            exit 1
+            echo "id=$version_id" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "id=$version_id" >> "$GITHUB_OUTPUT"
 
-      - uses: oven-sh/setup-bun@v2
-        if: steps.config.outputs.configured == 'true'
+          [ -n "$stderr" ] && echo "$stderr"
+
+          case "$status" in
+            3)
+              echo "::error::MODRINTH_TOKEN is missing or was rejected by Modrinth."
+              ;;
+            4)
+              echo "::error::Modrinth project ${PROJECT_ID} could not be read — it may still be a draft awaiting Modrinth moderation approval, the project id may be wrong, or MODRINTH_TOKEN may lack access to it."
+              ;;
+            8)
+              echo "::error::No Modrinth version found for project ${PROJECT_ID} with version_number ${VERSION} after the ~300s (20-attempt) budget — has this release been published to Modrinth yet?"
+              ;;
+            7)
+              if [ "$EVENT_NAME" = "release" ] || [ "$EVENT_NAME" = "workflow_run" ]; then
+                echo "::error::No Modrinth version found for project ${PROJECT_ID} with version_number ${VERSION} after the ~300s (20-attempt) budget — has this release been published to Modrinth yet?"
+              else
+                echo "::error::No Modrinth version found for project ${PROJECT_ID} with version_number ${VERSION} — has this release been published to Modrinth yet?"
+              fi
+              ;;
+            *)
+              echo "::error::rinth versions latest failed (exit ${status}): ${stderr}"
+              ;;
+          esac
+          exit "$status"
 
       # Re-points the server's upstream at the resolved version id above and
-      # restarts it, via the rinth CLI. Pinned to a commit sha (rinth has no
-      # tags yet) rather than a branch ref, since a branch ref is a moving
-      # target an upstream maintainer could repoint underneath this workflow.
+      # restarts it, via the rinth CLI. Pinned to a released tag rather than
+      # a branch ref, since a branch ref is a moving target an upstream
+      # maintainer could repoint underneath this workflow.
       - name: Update Modrinth server
         if: steps.config.outputs.configured == 'true'
         env:
@@ -210,4 +216,4 @@ jobs:
           SERVER_ID: ${{ vars.MODRINTH_SERVER_ID }}
           PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
           VERSION_ID: ${{ steps.modrinth_version.outputs.id }}
-        run: bunx --bun github:brooswit-minecraft/rinth#206e4e4d9913c5c0013cf3109c237cd4bb84954e servers upstream "$SERVER_ID" --project "$PROJECT_ID" --version "$VERSION_ID" --restart --json
+        run: bunx --bun github:brooswit-minecraft/rinth#v0.9.0 servers upstream "$SERVER_ID" --project "$PROJECT_ID" --version "$VERSION_ID" --restart --json
