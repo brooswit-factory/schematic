@@ -111,7 +111,7 @@ jobs:
         if: steps.config.outputs.configured == 'true'
 
       # Looks up the just-published version on Modrinth by its version
-      # number, via the rinth CLI (pinned #v0.9.0 — see the pin note on the
+      # number, via the rinth CLI (pinned #v0.9.1 — see the pin note on the
       # "Update Modrinth server" step below for why a tag, not a branch).
       # rinth's transport reads MODRINTH_TOKEN from the environment and
       # requires it unconditionally, so this lookup is authenticated because
@@ -165,7 +165,7 @@ jobs:
           fi
 
           set +e
-          stdout="$(bunx --bun github:brooswit-minecraft/rinth#v0.9.0 versions latest "$PROJECT_ID" --version-number "$VERSION" "${wait_args[@]}" --json 2>/tmp/rinth_stderr.json)"
+          stdout="$(bunx --bun github:brooswit-minecraft/rinth#v0.9.1 versions latest "$PROJECT_ID" --version-number "$VERSION" "${wait_args[@]}" --json 2>/tmp/rinth_stderr.json)"
           status=$?
           set -e
           stderr="$(cat /tmp/rinth_stderr.json)"
@@ -216,4 +216,4 @@ jobs:
           SERVER_ID: ${{ vars.MODRINTH_SERVER_ID }}
           PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
           VERSION_ID: ${{ steps.modrinth_version.outputs.id }}
-        run: bunx --bun github:brooswit-minecraft/rinth#v0.9.0 servers upstream "$SERVER_ID" --project "$PROJECT_ID" --version "$VERSION_ID" --restart --json
+        run: bunx --bun github:brooswit-minecraft/rinth#v0.9.1 servers upstream "$SERVER_ID" --project "$PROJECT_ID" --version "$VERSION_ID" --restart --json
