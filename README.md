@@ -223,20 +223,22 @@ This **skips cleanly** (the workflow still finishes green) when `MODRINTH_SERVER
 `MODRINTH_TOKEN` aren't configured, so this works out of the box on a fresh clone — you
 opt in by adding the variable/secret above whenever you're ready. Once configured,
 `MODRINTH_PROJECT_ID` is required too — the workflow fails loudly rather than skipping
-if it's missing. The workflow re-points and restarts the server via the
-[`rinth`](https://github.com/brooswit-minecraft/rinth) CLI, invoked at a pinned version
-through `bunx`, so nothing needs installing in your repo.
+if it's missing. The workflow looks up the published version, re-points, and restarts
+the server — all via the [`rinth`](https://github.com/brooswit-minecraft/rinth) CLI,
+invoked at a pinned version through `bunx`, so nothing needs installing in your repo.
 
-Looking up the published version on Modrinth is **authenticated with `MODRINTH_TOKEN`**:
-a Modrinth project stays a draft — invisible to unauthenticated reads — until Modrinth
-moderation approves it, so without authentication a first-release consumer could never
-be followed. The lookup still polls, bounded to about 5 minutes, before failing — on
-the chained `workflow_run` trigger that's now just insurance against a lag between
-Modrinth's publish and that version becoming visible over its API; on the older
-`release: published` trigger it's still doing its original job, since that trigger
-races the release workflow with no ordering guarantee between them. The ~5 minute
-bound was checked against a real chained release and kept as-is; any consumer still
-on `release: published` (like schematic-example) depends on that same bound today.
+That same pinned rinth CLI performs the version lookup, **authenticated with
+`MODRINTH_TOKEN`**: a Modrinth project stays a draft — invisible to unauthenticated
+reads — until Modrinth moderation approves it, so without authentication a
+first-release consumer could never be followed. The lookup is bounded to about 5
+minutes before failing, now expressed as rinth's own `--wait` budget rather than a
+hand-rolled retry loop — on the chained `workflow_run` trigger that's just insurance
+against a lag between Modrinth's publish and that version becoming visible over its
+API; on the older `release: published` trigger it's still doing its original job,
+since that trigger races the release workflow with no ordering guarantee between
+them. The ~5 minute bound was checked against a real chained release and kept as-is;
+any consumer still on `release: published` (like schematic-example) depends on that
+same bound today.
 
 ### The stub pattern
 
