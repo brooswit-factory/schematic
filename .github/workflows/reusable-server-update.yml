@@ -122,12 +122,17 @@ jobs:
       # reusable-release.yml, since the stub only fires after the Release
       # workflow run has already completed. The poll still runs on that path
       # too, now purely as insurance against Modrinth publish-to-API-visibility
-      # lag rather than as a race mitigation; whether to keep it at this size,
-      # shrink it, or remove it once every consumer has migrated is left to a
-      # later ticket, to be decided with evidence from a real release. On
-      # workflow_dispatch the version is expected to already exist (a manual
-      # re-point), so it tries once and fails fast. Exhausting the budget
-      # without a match is a real error worth failing loudly for, not a skip.
+      # lag rather than as a race mitigation. Sizing was reviewed against a
+      # real chained release (sickos run 33322343392: found on attempt 1/20,
+      # ~13s after publish) and deliberately kept unchanged — an unused
+      # attempt costs nothing on the happy path, and one data point doesn't
+      # bound the tail of a third-party service we don't control. The
+      # release path's budget can't shrink regardless: it must stay large as
+      # long as any consumer (schematic-example today) is still on
+      # `release: published` instead of chaining. On workflow_dispatch the
+      # version is expected to already exist (a manual re-point), so it
+      # tries once and fails fast. Exhausting the budget without a match is
+      # a real error worth failing loudly for, not a skip.
       - name: Resolve published version id
         if: steps.config.outputs.configured == 'true'
         id: modrinth_version
