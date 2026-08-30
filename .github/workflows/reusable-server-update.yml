@@ -10,7 +10,21 @@ name: Reusable Server update
 #
 # `github.event_name` / `github.event.release.*` here reflect the CALLER's
 # original triggering event, not a synthetic "workflow_call" event — see the
-# note in reusable-release.yml for how that was verified.
+# note in reusable-release.yml for how that was verified. That is also what
+# makes the three-way branch below work: a stub chained via `workflow_run`
+# forwards `event_name = "workflow_run"` and `github.event.workflow_run.*`
+# from ITS OWN trigger, not a synthetic value from this reusable workflow.
+#
+# Three ways a caller can reach this workflow, and this file must keep all
+# three working forever (see the stub migration note in README.md):
+#   - release        the legacy direct trigger (`release: published`) races
+#                     reusable-release.yml on the same event, still used by
+#                     any consumer whose stub hasn't migrated to chaining.
+#   - workflow_run    the new chained trigger: the stub fires after this
+#                     repo's "Release" workflow run completes, so there is no
+#                     race — see the stub in this repo's own server-update.yml.
+#   - workflow_dispatch  the manual re-point path, unrelated to either
+#                     trigger above.
 
 on:
   workflow_call:
@@ -18,9 +32,12 @@ on:
       version:
         description: >-
           Version to look up on Modrinth, forwarded from the stub's
-          workflow_dispatch input. Ignored when the caller was triggered by a
-          published release — this workflow reads github.event.release.tag_name
-          directly for that case, falling back to pack.toml otherwise.
+          workflow_dispatch input. Ignored on the release and workflow_run
+          paths: on release this workflow reads github.event.release.tag_name
+          directly; on workflow_run it reads
+          github.event.workflow_run.head_branch (which, for a run triggered
+          by a published release, is the release tag — see "Resolve version"
+          below). Falls back to pack.toml only if none of those apply.
         required: false
         type: string
 
@@ -31,20 +48,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # github.event.release.tag_name and inputs.version are attacker-influenced
-      # (a release tag or dispatch input), so they must never be interpolated
-      # directly into the run: shell body — GitHub substitutes them textually
-      # before the shell runs, which is a script-injection vector. Pass them
-      # through env: instead.
+      # github.event.release.tag_name, github.event.workflow_run.head_branch,
+      # and inputs.version are all attacker-influenced (a release tag, a
+      # chained run's tag-named branch, or a dispatch input), so none of them
+      # must ever be interpolated directly into the run: shell body — GitHub
+      # substitutes them textually before the shell runs, which is a
+      # script-injection vector. Pass them through env: instead.
+      #
+      # On workflow_run, head_branch is the tag that triggered the upstream
+      # Release run — confirmed empirically (sickos run 33226276846, event
+      # released as tag v0.1.0, reports headBranch "v0.1.0"). There is no
+      # release payload on this path (github.event.release is unset), so
+      # tag_name can't be read directly the way the release branch does.
       - name: Resolve version
         id: version
         env:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [ "$EVENT_NAME" = "release" ]; then
             version="${RELEASE_TAG#v}"
+          elif [ "$EVENT_NAME" = "workflow_run" ]; then
+            version="${WORKFLOW_RUN_HEAD_BRANCH#v}"
           elif [ -n "$INPUT_VERSION" ]; then
             version="$INPUT_VERSION"
           else
@@ -89,10 +116,18 @@ jobs:
       # the same `release: published` event with no ordering dependency, so
       # reusable-release.yml may still be building/publishing the .mrpack
       # when this step starts; this polls, bounded, for up to ~5 minutes
-      # (20 attempts x 15s) before failing. On workflow_dispatch the version
-      # is expected to already exist (a manual re-point), so it tries once
-      # and fails fast. Exhausting the budget without a match is a real
-      # error worth failing loudly for, not a skip.
+      # (20 attempts x 15s) before failing. That race is why a consumer's
+      # stub should chain on workflow_run instead (see server-update.yml and
+      # the README migration note) — once chained, this step no longer races
+      # reusable-release.yml, since the stub only fires after the Release
+      # workflow run has already completed. The poll still runs on that path
+      # too, now purely as insurance against Modrinth publish-to-API-visibility
+      # lag rather than as a race mitigation; whether to keep it at this size,
+      # shrink it, or remove it once every consumer has migrated is left to a
+      # later ticket, to be decided with evidence from a real release. On
+      # workflow_dispatch the version is expected to already exist (a manual
+      # re-point), so it tries once and fails fast. Exhausting the budget
+      # without a match is a real error worth failing loudly for, not a skip.
       - name: Resolve published version id
         if: steps.config.outputs.configured == 'true'
         id: modrinth_version
@@ -107,7 +142,7 @@ jobs:
           # with no matching version (version not published yet). Capture
           # the status code explicitly instead so the two causes can be
           # reported separately below.
-          if [ "$EVENT_NAME" = "release" ]; then
+          if [ "$EVENT_NAME" = "release" ] || [ "$EVENT_NAME" = "workflow_run" ]; then
             max_attempts=20
             interval=15
           else
