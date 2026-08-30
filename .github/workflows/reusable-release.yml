@@ -104,33 +104,132 @@ jobs:
 
       # No Minecraft version or loader is hardcoded here — both come from the
       # consumer's own pack.toml [versions] table. `loaders` is whichever of
-      # forge/fabric/neoforge/quilt keys are present (packwiz packs pin
-      # exactly one loader version each, but mc-publish accepts a list).
-      # Modrinth publish is gated to the `release` event only — a
-      # workflow_dispatch dry run must never publish, even when Modrinth is
-      # configured. See the "Skip Modrinth publish (dry run)" step below for
-      # the has_modrinth-but-not-release case.
+      # forge/fabric/neoforge/quilt keys are present, written one per line so
+      # the publish steps below can turn them into repeated `--loader` flags
+      # (rinth takes `--loader fabric --loader forge`, not a comma list — a
+      # comma-joined string would register a single bogus loader literally
+      # named "fabric,forge"). This step is pure local computation (two sed
+      # reads into $GITHUB_OUTPUT, no network call, no secret), so it runs
+      # whenever Modrinth is configured, on both the release path and the
+      # workflow_dispatch path — the dispatch path's dry-run invocation below
+      # needs real values to print. Only the actual publish step stays gated
+      # to the `release` event.
       - name: Resolve Modrinth targets
-        if: steps.modrinth_check.outputs.has_modrinth == 'true' && github.event_name == 'release'
+        if: steps.modrinth_check.outputs.has_modrinth == 'true'
         id: targets
         run: |
           echo "minecraft=$(sed -n 's/^minecraft = "\(.*\)"/\1/p' pack.toml)" >> "$GITHUB_OUTPUT"
-          echo "loaders=$(sed -n -E 's/^(forge|fabric|neoforge|quilt) = ".*"/\1/p' pack.toml | paste -sd, -)" >> "$GITHUB_OUTPUT"
+          {
+            echo "loaders<<TARGETS_EOF"
+            sed -n -E 's/^(forge|fabric|neoforge|quilt) = ".*"/\1/p' pack.toml
+            echo "TARGETS_EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Skip Modrinth publish (dry run)
+      # rinth takes exactly one --file path and does existsSync on it
+      # literally — a glob string like build/*.mrpack will not expand and
+      # fails as a missing file. Resolve it to one concrete path ourselves,
+      # and fail loudly (rather than silently picking one) if the build
+      # produced zero or more than one .mrpack.
+      - name: Resolve .mrpack path
+        if: steps.modrinth_check.outputs.has_modrinth == 'true'
+        id: mrpack
+        run: |
+          shopt -s nullglob
+          mrpacks=(build/*.mrpack)
+          if [ "${#mrpacks[@]}" -eq 0 ]; then
+            echo "::error::No .mrpack file found in build/ (expected exactly one) — did the build step run?"
+            exit 1
+          elif [ "${#mrpacks[@]}" -gt 1 ]; then
+            echo "::error::Multiple .mrpack files found in build/, expected exactly one: ${mrpacks[*]}"
+            exit 1
+          fi
+          echo "file=${mrpacks[0]}" >> "$GITHUB_OUTPUT"
+
+      # The changelog is github.event.release.body, which anyone who can cut
+      # a release controls. Written to a file from env: rather than
+      # interpolated into a run: body, per the convention above (lines
+      # 36-38) — GitHub substitutes a value into run: textually before the
+      # shell runs it, so a body containing $(...) or a quote must not reach
+      # the shell of a job with contents: write. This also gets multi-line
+      # bodies (the normal case) to rinth cleanly via --changelog-file.
+      - name: Write Modrinth changelog to file
+        if: steps.modrinth_check.outputs.has_modrinth == 'true'
+        id: changelog
+        env:
+          RELEASE_BODY: ${{ github.event_name == 'release' && github.event.release.body || '' }}
+        run: |
+          file="$RUNNER_TEMP/modrinth-changelog.txt"
+          printf '%s' "$RELEASE_BODY" > "$file"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.modrinth_check.outputs.has_modrinth == 'true'
+
+      # Turns the workflow_dispatch dry run from a bare assertion into a real
+      # check of the payload that would be sent: rinth's own --dry-run reads
+      # the resolved .mrpack file and prints the project, file, version,
+      # channel, game version(s) and loaders it would upload as JSON, before
+      # any project/version lookup or upload is attempted — it never touches
+      # ctx.transport, so this cannot make a network call (verified against
+      # rinth's source at v0.8.0). This is a SECOND belt, not a replacement
+      # for the `if:` on the "Publish to Modrinth" step below — that `if:`,
+      # keyed on github.event_name == 'release', is what actually prevents a
+      # workflow_dispatch run from ever publishing. Two separate steps with
+      # mutually exclusive event conditions, deliberately not one step whose
+      # --dry-run flag is computed from an expression — collapsing them would
+      # make a string interpolation the only thing standing between a
+      # dispatch run and a live publish.
+      - name: Dry-run Modrinth publish
         if: steps.modrinth_check.outputs.has_modrinth == 'true' && github.event_name != 'release'
-        run: echo "workflow_dispatch — skipping Modrinth publish (dry run, not a release event)"
+        env:
+          PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+          MRPACK_FILE: ${{ steps.mrpack.outputs.file }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          CHANGELOG_FILE: ${{ steps.changelog.outputs.file }}
+          MINECRAFT: ${{ steps.targets.outputs.minecraft }}
+          LOADERS: ${{ steps.targets.outputs.loaders }}
+          CHANNEL: ${{ contains(steps.ver.outputs.version, '-') && 'beta' || 'release' }}
+        run: |
+          loader_flags=()
+          while IFS= read -r loader; do
+            [ -n "$loader" ] && loader_flags+=(--loader "$loader")
+          done <<< "$LOADERS"
 
+          bunx --bun github:brooswit-minecraft/rinth#v0.8.0 publish "$PROJECT_ID" \
+            --file "$MRPACK_FILE" \
+            --version "$VERSION" \
+            --changelog-file "$CHANGELOG_FILE" \
+            --game-version "$MINECRAFT" \
+            "${loader_flags[@]}" \
+            --channel "$CHANNEL" \
+            --dry-run
+
+      # The only step that actually writes to Modrinth. --name is omitted so
+      # it defaults to $VERSION (rinth: `name ?? version`), matching what
+      # this workflow passed explicitly before. rinth itself refuses to
+      # publish a duplicate version_number (exits 5) before any upload — a
+      # behaviour change from before, called out in the PR description.
       - name: Publish to Modrinth
         if: steps.modrinth_check.outputs.has_modrinth == 'true' && github.event_name == 'release'
-        uses: Kir-Antipov/mc-publish@v3.3
-        with:
-          modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}
-          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
-          files: build/*.mrpack
-          name: ${{ steps.ver.outputs.version }}
-          version: ${{ steps.ver.outputs.version }}
-          version-type: ${{ contains(steps.ver.outputs.version, '-') && 'beta' || 'release' }}
-          game-versions: ${{ steps.targets.outputs.minecraft }}
-          loaders: ${{ steps.targets.outputs.loaders }}
-          changelog: ${{ github.event_name == 'release' && github.event.release.body || '' }}
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+          MRPACK_FILE: ${{ steps.mrpack.outputs.file }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          CHANGELOG_FILE: ${{ steps.changelog.outputs.file }}
+          MINECRAFT: ${{ steps.targets.outputs.minecraft }}
+          LOADERS: ${{ steps.targets.outputs.loaders }}
+          CHANNEL: ${{ contains(steps.ver.outputs.version, '-') && 'beta' || 'release' }}
+        run: |
+          loader_flags=()
+          while IFS= read -r loader; do
+            [ -n "$loader" ] && loader_flags+=(--loader "$loader")
+          done <<< "$LOADERS"
+
+          bunx --bun github:brooswit-minecraft/rinth#v0.8.0 publish "$PROJECT_ID" \
+            --file "$MRPACK_FILE" \
+            --version "$VERSION" \
+            --changelog-file "$CHANGELOG_FILE" \
+            --game-version "$MINECRAFT" \
+            "${loader_flags[@]}" \
+            --channel "$CHANNEL"
