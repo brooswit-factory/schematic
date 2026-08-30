@@ -195,12 +195,15 @@ both configured** — the Modrinth publish only ever runs on the `release` event
 
 ## Deploying to a Modrinth Server
 
-`.github/workflows/server-update.yml` runs on a published GitHub release, or on demand
-via `workflow_dispatch` (with an optional `version` input; it otherwise falls back to
-the `version` field in `pack.toml`). Publishing to Modrinth happens on release (see
-[Releasing](#releasing) above); a [Modrinth-hosted server](https://modrinth.com/servers)
-follows the published project automatically — this workflow re-points it at the
-newly-published version and restarts it.
+`.github/workflows/server-update.yml` runs once the `Release` workflow above has
+finished — chained via `workflow_run`, so it only starts after a release has actually
+published to Modrinth — or on demand via `workflow_dispatch` (with an optional
+`version` input; it otherwise falls back to the `version` field in `pack.toml`). A
+[Modrinth-hosted server](https://modrinth.com/servers) follows the published project
+automatically; this workflow re-points it at the newly-published version and restarts
+it. See [Migrating an existing stub](#migrating-an-existing-stub) below if your own
+`server-update.yml` still uses the older `release: published` trigger — it keeps
+working unchanged, and switching is optional.
 
 One-time setup:
 
@@ -224,9 +227,75 @@ through `bunx`, so nothing needs installing in your repo.
 Looking up the published version on Modrinth is **authenticated with `MODRINTH_TOKEN`**:
 a Modrinth project stays a draft — invisible to unauthenticated reads — until Modrinth
 moderation approves it, so without authentication a first-release consumer could never
-be followed. Because the release workflow and this one both fire on the same published
-release and this one has to wait for the release workflow to finish publishing to
-Modrinth, the lookup polls, bounded to about 5 minutes, before failing.
+be followed. The lookup still polls, bounded to about 5 minutes, before failing — on
+the chained `workflow_run` trigger that's now just insurance against a lag between
+Modrinth's publish and that version becoming visible over its API; on the older
+`release: published` trigger it's still doing its original job, since that trigger
+races the release workflow with no ordering guarantee between them.
+
+### The stub pattern
+
+This repo's own `server-update.yml` is the reference implementation of the chained
+stub:
+
+```yaml
+name: Server update
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to announce (defaults to the pack.toml version)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  server-update:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release')
+    uses: brooswit-minecraft/schematic/.github/workflows/reusable-server-update.yml@v1
+    with:
+      version: ${{ inputs.version }}
+    secrets: inherit
+```
+
+Two things worth calling out:
+
+- `workflows: ["Release"]` matches the **display name** (`name: Release` in
+  release.yml), not the filename `release.yml`. If you ever rename that `name:`
+  field, update this list too, or the chain silently stops firing.
+- The `if:` guard admits two different runs: this workflow's own manual
+  `workflow_dispatch` (for a re-point with no new release involved), and a
+  `workflow_run` whose upstream Release run both succeeded and was itself triggered by
+  `release` — not by release.yml's own `workflow_dispatch` dry-run path, which
+  deliberately creates no GitHub Release and must not trigger a server update.
+
+### Migrating an existing stub
+
+**This is optional and non-breaking.** `reusable-server-update.yml@v1` keeps
+supporting the old `release: published` trigger forever — that's the whole point of
+`@v1` being backwards-compatible — so an existing stub can stay exactly as it is. Move
+to the `workflow_run` pattern above only when it's convenient.
+
+If you do migrate, know this going in:
+
+- **A `workflow_run` trigger only arms once the stub is on your repo's default
+  branch.** GitHub will not fire it from a pull request branch, so you cannot test the
+  chaining itself before merging — you can still validate the YAML statically, but
+  proving the chain fires end-to-end has to happen after the stub lands on `main` (or
+  your default branch) and a real release runs.
+- `workflows: ["Release"]` is matched by the upstream workflow's `name:` field, not
+  its filename — see above.
+- A dry-run `workflow_dispatch` of `release.yml` (see [Releasing](#releasing) above)
+  deliberately does not create a GitHub Release, so it will not trigger a chained
+  server update either — that's intended, not a gap.
 
 ## Working on the pack
 
