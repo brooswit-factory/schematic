@@ -188,10 +188,13 @@ gh workflow run release.yml --ref <branch> -f version=0.0.1-test
 ```
 
 This builds and uploads the `.mrpack` as a workflow artifact but skips the
-Release-asset step (there is no Release object to attach to) and the Modrinth publish
-step, the same as any run without Modrinth configured. **A `workflow_dispatch` run
-never publishes to Modrinth, even when `MODRINTH_TOKEN` and `MODRINTH_PROJECT_ID` are
-both configured** — the Modrinth publish only ever runs on the `release` event.
+Release-asset step (there is no Release object to attach to). **A `workflow_dispatch`
+run never publishes to Modrinth, even when `MODRINTH_TOKEN` and `MODRINTH_PROJECT_ID`
+are both configured** — the Modrinth publish only ever runs on the `release` event.
+If Modrinth is configured, a dispatch run still validates the payload it *would* send
+via `rinth publish --dry-run` — project, file, version, channel, game version and
+loaders — without ever calling the Modrinth API, so a dry run catches a bad target
+(e.g. a mistyped loader) before a real release does.
 
 ## Deploying to a Modrinth Server
 
