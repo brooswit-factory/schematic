@@ -216,12 +216,12 @@ jobs:
       # rather than a branch ref, since a branch ref is a moving target an
       # upstream maintainer could repoint underneath this workflow.
       #
-      # SCHEM-21 (see epic SCHEM-9): this call is KNOWN TO FAIL, permanently,
-      # against the live Modrinth API — not a bug in this workflow. The v0
+      # SCHEM-21 (see epic SCHEM-9): this call is KNOWN TO FAIL against the
+      # live Modrinth API — not a bug in this workflow. The v0
       # `POST /modrinth/v0/servers/{id}/reinstall` route `servers upstream`
-      # depends on is DEAD AT THE ROUTER: it 404s regardless of credentials,
-      # server, or project (proven upstream with a deliberately invalid
-      # token getting the byte-identical 404 — see rinth's
+      # depends on 404s regardless of credentials, server, or project
+      # (proven upstream with a deliberately invalid token getting the
+      # byte-identical 404 — see rinth's
       # src/diagnose.ts and its README, "Authentication — what a token can
       # and cannot do"). Because that 404 carries no information about
       # whether MODRINTH_SERVER_ID/MODRINTH_PROJECT_ID are actually valid,
@@ -235,19 +235,20 @@ jobs:
       # error, an unrecognized or missing reason, unparseable --json output)
       # must still fail the job loudly — fail-closed, not open.
       #
-      # `servers_credential_refused` (exit 3 — a per-server Archon 403,
-      # which only a browser session token can clear, never a PAT) is
+      # `servers_credential_refused` (exit 3 — a per-server Archon 403) is
       # DELIBERATELY downgraded the same way, even though today it can only
       # be reached on the post-reinstall read-back or the --restart power
       # call — both of which run after setUpstream, and setUpstream fails
-      # first on the dead route above, so this path isn't actually exercised
-      # yet. It's included on purpose: it is equally unfixable from CI (the
-      # same "no credential this workflow can ever hold will satisfy it"
-      # shape as the dead route), and leaving it fatal would just mean this
-      # step starts failing loudly again the moment rinth's v1 migration
-      # fixes the dead route out from under this decision — for a cause
-      # exactly as far outside this repo's control as the one already being
-      # downgraded.
+      # first on the 404 above, so this path isn't actually exercised yet.
+      # It's included on purpose: it is equally not actionable from CI
+      # today, and whether it's reachable at all is an open upstream
+      # question — RINTH-23 investigated and returned UNDECIDABLE, because
+      # the route it depends on lives in a separate Modrinth service whose
+      # router and auth guard aren't published, so it can't be settled by
+      # reading source from outside Modrinth. Leaving it
+      # fatal would just mean this step starts failing loudly again the
+      # moment that changes — for a cause exactly as undetermined as the
+      # one already being downgraded.
       - name: Update Modrinth server
         if: steps.config.outputs.configured == 'true'
         env:

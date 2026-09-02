@@ -210,8 +210,8 @@ working unchanged, and switching is optional.
 version on Modrinth — that part is real and works today, via the pinned `rinth` CLI —
 but the step that re-points a [Modrinth-hosted server](https://modrinth.com/servers)
 at that version and restarts it fails on every run: the Modrinth API route it depends
-on is dead at the router, returning a 404 regardless of your token, server id, or
-project id. This is an upstream Modrinth limitation, not a sign your setup is wrong.
+on returns a 404 regardless of your token, server id, or project id. This is an
+upstream Modrinth limitation, not a sign your setup is wrong.
 The step is non-fatal — the workflow still finishes green — but it emits a loud
 `::warning::` on the run summary every time it can't re-point, so a green run still
 tells you the server has fallen behind. This is tracked in epic SCHEM-9 and in
