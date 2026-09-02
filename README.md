@@ -295,7 +295,7 @@ Two things worth calling out:
   release.yml), not the filename `release.yml`. If you ever rename that `name:`
   field, update this list too, or the chain silently stops firing.
 - The `if:` guard admits two different runs: this workflow's own manual
-  `workflow_dispatch` (for a re-point with no new release involved), and a
+  `workflow_dispatch` (for a re-point attempt with no new release involved), and a
   `workflow_run` whose upstream Release run both succeeded and was itself triggered by
   `release` — not by release.yml's own `workflow_dispatch` dry-run path, which
   deliberately creates no GitHub Release and must not trigger a server update.

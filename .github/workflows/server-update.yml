@@ -1,9 +1,13 @@
 name: Server update
 
-# After a release publishes a version to Modrinth, re-points a
-# Modrinth-hosted server's upstream at that version and restarts it. Skips
-# cleanly (and the run still succeeds) when MODRINTH_SERVER_ID /
-# MODRINTH_TOKEN are not configured — see reusable-server-update.yml.
+# After a release publishes a version to Modrinth, looks that version up and
+# ATTEMPTS to re-point a Modrinth-hosted server's upstream at it and restart
+# it — see reusable-server-update.yml for why "attempts to" is accurate, not
+# "does" (SCHEM-21: the re-point is currently non-functional against the live
+# Modrinth API; the run still succeeds, with a `::warning::` on the run
+# summary marking a server that didn't move). Skips cleanly (and the run
+# still succeeds) when MODRINTH_SERVER_ID / MODRINTH_TOKEN are not configured
+# — see reusable-server-update.yml.
 #
 # Chained on the "Release" workflow's completion (workflow_run) rather than
 # on `release: published` directly, so this only starts once release.yml has
@@ -21,9 +25,9 @@ name: Server update
 # GitHub Release (see README), and those must NOT trigger a server update.
 # The `if:` below requires BOTH a successful conclusion AND that the Release
 # run's own trigger was `release`, which excludes dry runs. It also has to
-# admit this workflow's OWN workflow_dispatch (the manual re-point path) —
-# `github.event.workflow_run.*` is unset there, so the guard is an explicit
-# OR rather than a single combined condition.
+# admit this workflow's OWN workflow_dispatch (the manual re-point-attempt
+# path) — `github.event.workflow_run.*` is unset there, so the guard is an
+# explicit OR rather than a single combined condition.
 on:
   workflow_run:
     workflows: ["Release"]
