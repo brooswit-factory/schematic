@@ -219,7 +219,8 @@ jobs:
       # SCHEM-21 (see epic SCHEM-9): this call is KNOWN TO FAIL against the
       # live Modrinth API — not a bug in this workflow. The v0
       # `POST /modrinth/v0/servers/{id}/reinstall` route `servers upstream`
-      # depends on 404s regardless of credentials, server, or project
+      # depends on is DEAD AT THE ROUTER: it 404s regardless of credentials,
+      # server, or project
       # (proven upstream with a deliberately invalid token getting the
       # byte-identical 404 — see rinth's
       # src/diagnose.ts and its README, "Authentication — what a token can
