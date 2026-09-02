@@ -1,12 +1,18 @@
 name: Reusable Server update
 
 # Callable from a consumer's thin server-update.yml stub. After a release
-# publishes a version to Modrinth, re-points a Modrinth-hosted server's
-# upstream at that published version and restarts it. Skips cleanly (and the
-# run still succeeds) when MODRINTH_SERVER_ID / MODRINTH_TOKEN are not
-# configured — see the "Check configuration" step below. Runs against the
-# CALLER's checkout — actions/checkout below checks out whichever repo
-# invoked this workflow, not this one.
+# publishes a version to Modrinth, looks that version up and ATTEMPTS to
+# re-point a Modrinth-hosted server's upstream at it and restart it. Skips
+# cleanly (and the run still succeeds) when MODRINTH_SERVER_ID /
+# MODRINTH_TOKEN are not configured — see the "Check configuration" step
+# below. Runs against the CALLER's checkout — actions/checkout below checks
+# out whichever repo invoked this workflow, not this one.
+#
+# SCHEM-21: the re-point attempt above is currently non-functional against
+# the live Modrinth API — see "Update Modrinth server" below for why — so
+# "attempts to" is accurate, not "does". The run still succeeds; a
+# `::warning::` on the run summary is how a caller finds out their server
+# didn't move.
 #
 # `github.event_name` / `github.event.release.*` here reflect the CALLER's
 # original triggering event, not a synthetic "workflow_call" event — see the
@@ -205,10 +211,43 @@ jobs:
           esac
           exit "$status"
 
-      # Re-points the server's upstream at the resolved version id above and
-      # restarts it, via the rinth CLI. Pinned to a released tag rather than
-      # a branch ref, since a branch ref is a moving target an upstream
-      # maintainer could repoint underneath this workflow.
+      # Attempts to re-point the server's upstream at the resolved version id
+      # above and restart it, via the rinth CLI. Pinned to a released tag
+      # rather than a branch ref, since a branch ref is a moving target an
+      # upstream maintainer could repoint underneath this workflow.
+      #
+      # SCHEM-21 (see epic SCHEM-9): this call is KNOWN TO FAIL, permanently,
+      # against the live Modrinth API — not a bug in this workflow. The v0
+      # `POST /modrinth/v0/servers/{id}/reinstall` route `servers upstream`
+      # depends on is DEAD AT THE ROUTER: it 404s regardless of credentials,
+      # server, or project (proven upstream with a deliberately invalid
+      # token getting the byte-identical 404 — see rinth's
+      # src/diagnose.ts and its README, "Authentication — what a token can
+      # and cannot do"). Because that 404 carries no information about
+      # whether MODRINTH_SERVER_ID/MODRINTH_PROJECT_ID are actually valid,
+      # downgrading it to a warning cannot mask a real misconfiguration —
+      # there was never a way for this call to catch one in the first place.
+      # rinth (pinned #v0.9.1, verified against that exact tag) reports this
+      # under `--json` as a JSON error object on STDERR shaped
+      # `{"error":{"code":4,...,"reason":"servers_upstream_route_dead"}}`.
+      # Discriminate on that `reason` field, NEVER on "exit code was
+      # non-zero": every other failure of this step (bad token, network
+      # error, an unrecognized or missing reason, unparseable --json output)
+      # must still fail the job loudly — fail-closed, not open.
+      #
+      # `servers_credential_refused` (exit 3 — a per-server Archon 403,
+      # which only a browser session token can clear, never a PAT) is
+      # DELIBERATELY downgraded the same way, even though today it can only
+      # be reached on the post-reinstall read-back or the --restart power
+      # call — both of which run after setUpstream, and setUpstream fails
+      # first on the dead route above, so this path isn't actually exercised
+      # yet. It's included on purpose: it is equally unfixable from CI (the
+      # same "no credential this workflow can ever hold will satisfy it"
+      # shape as the dead route), and leaving it fatal would just mean this
+      # step starts failing loudly again the moment rinth's v1 migration
+      # fixes the dead route out from under this decision — for a cause
+      # exactly as far outside this repo's control as the one already being
+      # downgraded.
       - name: Update Modrinth server
         if: steps.config.outputs.configured == 'true'
         env:
@@ -216,4 +255,28 @@ jobs:
           SERVER_ID: ${{ vars.MODRINTH_SERVER_ID }}
           PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
           VERSION_ID: ${{ steps.modrinth_version.outputs.id }}
-        run: bunx --bun github:brooswit-minecraft/rinth#v0.9.1 servers upstream "$SERVER_ID" --project "$PROJECT_ID" --version "$VERSION_ID" --restart --json
+        run: |
+          set +e
+          stdout="$(bunx --bun github:brooswit-minecraft/rinth#v0.9.1 servers upstream "$SERVER_ID" --project "$PROJECT_ID" --version "$VERSION_ID" --restart --json 2>/tmp/rinth_upstream_stderr.json)"
+          status=$?
+          set -e
+          stderr="$(cat /tmp/rinth_upstream_stderr.json)"
+
+          if [ "$status" -eq 0 ]; then
+            [ -n "$stdout" ] && echo "$stdout"
+            exit 0
+          fi
+
+          [ -n "$stderr" ] && echo "$stderr"
+          reason="$(printf '%s' "$stderr" | jq -r '.error.reason // empty' 2>/dev/null || true)"
+
+          case "$reason" in
+            servers_upstream_route_dead|servers_credential_refused)
+              echo "::warning::Modrinth server ${SERVER_ID} was NOT re-pointed to version ${VERSION_ID} and is NOT being kept in sync with releases. This is an upstream Modrinth limitation (rinth reason: ${reason}), not a problem with MODRINTH_SERVER_ID / MODRINTH_PROJECT_ID / MODRINTH_TOKEN. Tracked in epic SCHEM-9 and in rinth's README, \"Known gaps / follow-ups\"."
+              exit 0
+              ;;
+            *)
+              echo "::error::rinth servers upstream failed (exit ${status}, reason: ${reason:-none/unparseable}): ${stderr}"
+              exit "$status"
+              ;;
+          esac

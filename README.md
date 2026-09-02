@@ -165,7 +165,7 @@ still finishes green) when it isn't configured.
 |---|---|---|---|
 | `MODRINTH_TOKEN` | secret | `release.yml`, `server-update.yml` | Auth token for publishing to Modrinth and updating a Modrinth-hosted server |
 | `MODRINTH_PROJECT_ID` | variable | `release.yml`, `server-update.yml` | Identifies which Modrinth project to publish to / follow |
-| `MODRINTH_SERVER_ID` | variable | `server-update.yml` | The Modrinth-hosted server to keep in sync |
+| `MODRINTH_SERVER_ID` | variable | `server-update.yml` | The Modrinth-hosted server to keep in sync — re-pointing is currently non-functional upstream, see [Deploying to a Modrinth Server](#deploying-to-a-modrinth-server) |
 
 ## Releasing
 
@@ -201,14 +201,29 @@ loaders — without ever calling the Modrinth API, so a dry run catches a bad ta
 `.github/workflows/server-update.yml` runs once the `Release` workflow above has
 finished — chained via `workflow_run`, so it only starts after a release has actually
 published to Modrinth — or on demand via `workflow_dispatch` (with an optional
-`version` input; it otherwise falls back to the `version` field in `pack.toml`). A
-[Modrinth-hosted server](https://modrinth.com/servers) follows the published project
-automatically; this workflow re-points it at the newly-published version and restarts
-it. See [Migrating an existing stub](#migrating-an-existing-stub) below if your own
+`version` input; it otherwise falls back to the `version` field in `pack.toml`). See
+[Migrating an existing stub](#migrating-an-existing-stub) below if your own
 `server-update.yml` still uses the older `release: published` trigger — it keeps
 working unchanged, and switching is optional.
 
-One-time setup:
+**The re-point does not currently work.** The workflow looks up the just-published
+version on Modrinth — that part is real and works today, via the pinned `rinth` CLI —
+but the step that re-points a [Modrinth-hosted server](https://modrinth.com/servers)
+at that version and restarts it fails on every run: the Modrinth API route it depends
+on is dead at the router, returning a 404 regardless of your token, server id, or
+project id. This is an upstream Modrinth limitation, not a sign your setup is wrong.
+The step is non-fatal — the workflow still finishes green — but it emits a loud
+`::warning::` on the run summary every time it can't re-point, so a green run still
+tells you the server has fallen behind. This is tracked in epic SCHEM-9 and in
+[rinth](https://github.com/brooswit-minecraft/rinth)'s README, "Known gaps /
+follow-ups". Until that's fixed upstream, keep a Modrinth-hosted server's installed
+version current by re-installing it from your Modrinth project by hand after each
+release.
+
+One-time setup — still worth doing even though step 4 doesn't yet get you an automatic
+re-point (see above): it's what lets the version lookup run and gives you the loud
+warning above instead of silence, and nothing else will need to change here once the
+upstream route is fixed.
 
 1. Buy a Modrinth Server.
 2. Install the pack on it once from your Modrinth project, so its upstream points at
@@ -223,9 +238,10 @@ This **skips cleanly** (the workflow still finishes green) when `MODRINTH_SERVER
 `MODRINTH_TOKEN` aren't configured, so this works out of the box on a fresh clone — you
 opt in by adding the variable/secret above whenever you're ready. Once configured,
 `MODRINTH_PROJECT_ID` is required too — the workflow fails loudly rather than skipping
-if it's missing. The workflow looks up the published version, re-points, and restarts
-the server — all via the [`rinth`](https://github.com/brooswit-minecraft/rinth) CLI,
-invoked at a pinned version through `bunx`, so nothing needs installing in your repo.
+if it's missing. The workflow looks up the published version via the
+[`rinth`](https://github.com/brooswit-minecraft/rinth) CLI, invoked at a pinned version
+through `bunx` so nothing needs installing in your repo, then attempts the re-point and
+restart described above.
 
 That same pinned rinth CLI performs the version lookup, **authenticated with
 `MODRINTH_TOKEN`**: a Modrinth project stays a draft — invisible to unauthenticated
@@ -279,7 +295,7 @@ Two things worth calling out:
   release.yml), not the filename `release.yml`. If you ever rename that `name:`
   field, update this list too, or the chain silently stops firing.
 - The `if:` guard admits two different runs: this workflow's own manual
-  `workflow_dispatch` (for a re-point with no new release involved), and a
+  `workflow_dispatch` (for a re-point attempt with no new release involved), and a
   `workflow_run` whose upstream Release run both succeeded and was itself triggered by
   `release` — not by release.yml's own `workflow_dispatch` dry-run path, which
   deliberately creates no GitHub Release and must not trigger a server update.
@@ -347,7 +363,7 @@ mods/                                one *.pw.toml file per mod, pinning a versi
 .packwizignore                      repo files (docs, CI, Makefile) kept out of the pack
 .github/workflows/ci.yml            validates the index and builds the .mrpack on every push
 .github/workflows/release.yml       cuts a release (see Releasing above)
-.github/workflows/server-update.yml keeps a Modrinth-hosted server in sync (see Deploying to a Modrinth Server above)
+.github/workflows/server-update.yml follows a Modrinth-hosted server's version; re-pointing it is currently non-functional upstream (see Deploying to a Modrinth Server above)
 .github/workflows/tag-v1.yml        template-only (see Template-only files above)
 .github/workflows/reusable-*.yml    template-only (see Template-only files above)
 Makefile                            the build entry point, shared by humans and CI
