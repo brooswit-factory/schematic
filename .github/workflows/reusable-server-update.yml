@@ -242,10 +242,10 @@ jobs:
       # first on the 404 above, so this path isn't actually exercised yet.
       # It's included on purpose: it is equally not actionable from CI
       # today, and whether it's reachable at all is an open upstream
-      # question — the investigation in epic SCHEM-9 returned UNDECIDABLE,
-      # because the route it depends on lives in a separate Modrinth
-      # service whose router and auth guard aren't published, so it can't
-      # be settled by reading source from outside Modrinth. Leaving it
+      # question — RINTH-23 investigated and returned UNDECIDABLE, because
+      # the route it depends on lives in a separate Modrinth service whose
+      # router and auth guard aren't published, so it can't be settled by
+      # reading source from outside Modrinth. Leaving it
       # fatal would just mean this step starts failing loudly again the
       # moment that changes — for a cause exactly as undetermined as the
       # one already being downgraded.
